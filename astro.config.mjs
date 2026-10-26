@@ -82,6 +82,7 @@ export default defineConfig({
 							"http://yaeyama-takken.jp/data.cgi?mode=rss",
 							"https://yaeyama-home.com/rss/",
 							"https://www.lyoncorporation.com/category/list_ishigaki_yaeyama_llc/feed",
+							"https://eehome.jp/feed/", // イイホーム企画（2026-10 に追加）
 						],
 					},
 				},
