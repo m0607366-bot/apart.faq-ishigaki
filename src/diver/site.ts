@@ -98,7 +98,8 @@ export function excerptOf(content: unknown, max = 90): string {
 		text += " ";
 		if (text.length > max * 2) break;
 	}
-	text = text.replace(/\s+/g, " ").trim();
+	// apart: 物件ページへのリンクの文字は抜粋に出さない
+	text = text.replace(/このサイトの記事を見る/g, " ").replace(/\s+/g, " ").trim();
 	return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 

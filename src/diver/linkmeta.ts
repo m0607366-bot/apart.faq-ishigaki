@@ -66,10 +66,32 @@ async function selfMeta(u: URL): Promise<LinkMeta | null> {
 // 本文の物件写真を OGP 画像より優先する（apart の物件ページ用）
 const CONTENT_IMAGE_FIRST = true;
 // 写真でないもの（ロゴ・ボタン・アイコンなど）の名前
-const NOT_PHOTO = /logo|banner|bnr|icon|ico_|header|footer|btn|button|bg[_-]|back|sns|line|twitter|facebook|insta|qr|arrow|map|noimage|no_image|nophoto|spacer|blank|loading|gif$|svg$|common|parts|title|tel|mail|contact|badge|ribbon/i;
+const NOT_PHOTO = /^cropped-|logo|banner|bnr|icon|ico_|header|footer|btn|button|bg[_-]|back|sns|line|twitter|facebook|insta|qr|arrow|map|noimage|no_image|nophoto|spacer|blank|loading|gif$|svg$|common|parts|title|tel|mail|contact|badge|ribbon/i;
 
 /** 本文から物件写真らしい画像を選ぶ（ロゴ・ボタン・小さい画像は除く。リンク先の大きい写真も見る） */
 export function contentPhoto(body: string, base: URL, ogImage?: string): string | undefined {
+	// 物件写真のギャラリー（WordPress の不動産プラグインは alt が「…画像1」「…画像2」…）。
+	// 画像1 が縦長（間取り図・地図のことが多い）なら 画像2 を使う
+	const gallery: Array<{ n: number; src: string; portrait: boolean }> = [];
+	for (const m of body.matchAll(/(?:<a\b[^>]*href=["']([^"']+)["'][^>]*>\s*)?(<img\b[^>]*>)/gi)) {
+		const tag = m[2];
+		const n = Number(tag.match(/\salt=["'][^"']*画像\s*(\d+)["']/)?.[1] ?? 0);
+		if (!n) continue;
+		const src = tag.match(/\s(?:data-src|data-lazy-src|data-original|src)=["']([^"']+)["']/i)?.[1];
+		if (!src) continue;
+		const big = m[1] && /\.(jpe?g|png|webp)(\?|$)/i.test(m[1]) ? m[1] : src;
+		const wh = big.match(/-(\d+)x(\d+)\.\w+$/);
+		const w = Number(wh?.[1] ?? tag.match(/\swidth=["']?(\d+)/i)?.[1] ?? 0);
+		const h = Number(wh?.[2] ?? tag.match(/\sheight=["']?(\d+)/i)?.[1] ?? 0);
+		gallery.push({ n, src: big, portrait: !!(w && h && h > w * 1.15) });
+	}
+	if (gallery.length) {
+		gallery.sort((a, b) => a.n - b.n);
+		const pick = gallery.find((g) => !g.portrait) ?? gallery[0];
+		try {
+			return new URL(decodeEntities(pick.src), base).toString();
+		} catch {}
+	}
 	const seen = new Set<string>();
 	const candidates: string[] = [];
 	const add = (raw: string | undefined) => {
@@ -142,7 +164,7 @@ async function remoteMeta(u: URL): Promise<LinkMeta | null> {
 }
 
 /** 外部サイトの取得結果は、Cloudflareのキャッシュに30日保存して、毎回取りに行かない */
-const META_CACHE_PREFIX = "https://linkmeta.internal/v2/"; // 取り出し方を変えたら番号を上げる（古い結果を使わない）
+const META_CACHE_PREFIX = "https://linkmeta.internal/v3/"; // 取り出し方を変えたら番号を上げる（古い結果を使わない）
 async function cachedRemoteMeta(u: URL): Promise<LinkMeta | null> {
 	const cache: Cache | undefined = (globalThis as any).caches?.default;
 	const key = META_CACHE_PREFIX + encodeURIComponent(u.toString());
