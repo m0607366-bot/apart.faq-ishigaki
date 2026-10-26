@@ -69,16 +69,14 @@ export default defineConfig({
 						// リンク切れの確認（UTC）。日本時間の 3:00 から10分ごと、1回150件ずつ（記事全体を一回りしたらその日は終わり。5:00まで）
 						linkCheckSchedules: ["*/10 18-19 * * *"],
 						linkCheckBatch: 150,
+						// 2026-10 に外したもの: okinawa.e-uchina.net・ushirorealestate.co.jp（サイトがない）、rss.hpw.jp（フィード廃止）
 						feeds: [
 							"http://www.yjs.ne.jp/?feed=rss2",
 							"http://www.forum-tamaki.com/data.cgi?mode=rss",
 							"http://mutsumi-estate.com/?feed=rss2",
 							"http://ishigaki-fd.com/feed",
-							"http://okinawa.e-uchina.net/shop/005664/feed/",
 							"https://www.jjc-ishigaki.jp/feed/?post_type=chintai",
-							"http://rss.hpw.jp/1748.rdf",
 							"http://www.sogokeikaku.com/data.cgi?mode=rss",
-							"http://www.ushirorealestate.co.jp/?feed=atom",
 							"http://yaeyama-takken.jp/data.cgi?mode=rss",
 							"https://yaeyama-home.com/rss/",
 							"https://www.lyoncorporation.com/category/list_ishigaki_yaeyama_llc/feed",

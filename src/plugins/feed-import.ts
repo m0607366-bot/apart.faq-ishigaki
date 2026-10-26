@@ -37,6 +37,8 @@ const ID = "feed-import";
 const SEEN_KEY = "seen"; // 取り込み済みのリンク一覧
 const LAST_KEY = "lastRun"; // 最後の巡回結果
 const NUMERIC = /^\d+$/;
+// 自動の読み取りを断るサイト（フォーラム環など）があるので、普通のブラウザと同じ名乗りで読みに行く
+const BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
 
 interface FeedItem {
 	title: string;
@@ -113,7 +115,7 @@ export function parseFeed(xml: string): Feed {
 
 async function fetchFeed(ctx: PluginContext, url: string, timeoutMs = 20_000): Promise<Feed> {
 	const doFetch = ctx.http ? ctx.http.fetch.bind(ctx.http) : fetch;
-	const res = await doFetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; apart.faq-ishigaki.com feed reader)" }, signal: AbortSignal.timeout(timeoutMs) });
+	const res = await doFetch(url, { headers: { "User-Agent": BROWSER_UA, Accept: "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8", "Accept-Language": "ja,en;q=0.8" }, signal: AbortSignal.timeout(timeoutMs) });
 	if (!res.ok) throw new Error(`HTTP ${res.status}`);
 	const bytes = new Uint8Array(await res.arrayBuffer());
 	// 文字コード（Shift_JIS・EUC-JP のフィードもある）: XML宣言 → Content-Type → UTF-8
@@ -132,8 +134,11 @@ async function fetchFeed(ctx: PluginContext, url: string, timeoutMs = 20_000): P
 }
 
 // ===== 取り込み済みの一覧 =====
+// 同じ物件かどうかを比べるための形: 「&#038;」「&amp;」→「&」、追跡用の utm_… を外す、http/https・末尾の / の違いを無視
 function normalizeLink(u: string): string {
-	return u.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "").replace(/#.*$/, "");
+	let s = u.trim().replace(/&#0*38;|&amp;/gi, "&").replace(/#.*$/, "");
+	s = s.replace(/([?&])utm_[a-z]+=[^&]*/gi, "$1").replace(/[?&]+$/, "").replace(/\?&+/, "?").replace(/&&+/g, "&");
+	return s.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
 }
 function linksIn(value: unknown, out: string[]): void {
 	if (Array.isArray(value)) for (const v of value) linksIn(v, out);
@@ -147,7 +152,7 @@ function linksIn(value: unknown, out: string[]): void {
 }
 async function loadSeen(ctx: PluginContext): Promise<Set<string>> {
 	const saved = await ctx.kv.get<string[]>(SEEN_KEY);
-	if (saved) return new Set(saved);
+	if (saved) return new Set(saved.map(normalizeLink)); // 比べ方を変えたときのため、読み込むたびに形をそろえる
 	// 初回: 今ある記事（WordPress から取り込んだもの）のリンクから作る
 	const seen = new Set<string>();
 	let cursor: string | undefined;
@@ -399,6 +404,40 @@ async function probeSite(ctx: PluginContext, site: string) {
 	return out;
 }
 
+// ===== 同じ物件の記事が二重になっていたら、新しいほうをゴミ箱へ =====
+export async function runDedupe(ctx: PluginContext) {
+	const groups = new Map<string, Array<{ id: string; slug: string; title: string }>>();
+	let cursor: string | undefined;
+	for (let i = 0; i < 200; i++) {
+		const page = await ctx.content.list("posts", { limit: 100, cursor });
+		for (const item of page.items) {
+			const link = firstLink(item.data?.content);
+			if (!link) continue;
+			const k = normalizeLink(link);
+			if (!groups.has(k)) groups.set(k, []);
+			groups.get(k)!.push({ id: item.id, slug: String(item.slug ?? ""), title: String(item.data?.title ?? "") });
+		}
+		if (!page.hasMore || !page.cursor) break;
+		cursor = page.cursor;
+	}
+	const num = (s: string) => (NUMERIC.test(s) ? Number(s) : Number.MAX_SAFE_INTEGER);
+	const trashed: Array<{ slug: string; title: string; kept: string }> = [];
+	for (const list of groups.values()) {
+		if (list.length < 2) continue;
+		list.sort((a, b) => num(a.slug) - num(b.slug)); // 番号の小さい（古い）ほうを残す
+		for (const dup of list.slice(1)) {
+			try {
+				if (await ctx.content.delete!("posts", dup.id)) trashed.push({ slug: dup.slug, title: dup.title, kept: list[0].slug });
+			} catch (e) {
+				ctx.log.warn(`[feed-import] dedupe ${dup.id}: ${e instanceof Error ? e.message : e}`);
+			}
+		}
+	}
+	// 取り込み済みの一覧も新しい比べ方で作り直す
+	await ctx.kv.set(SEEN_KEY, [...groups.keys()]);
+	return { posts: [...groups.values()].reduce((n, l) => n + l.length, 0), trashed: trashed.length, list: trashed };
+}
+
 async function ensureSchedules(ctx: PluginContext, config: FeedImportConfig): Promise<void> {
 	if (!ctx.cron) return;
 	for (const [i, schedule] of config.schedules.entries()) await ctx.cron.schedule(`crawl-${i}`, { schedule });
@@ -449,6 +488,10 @@ export function createPlugin(config: FeedImportConfig): ResolvedPlugin {
 					const limit = Number(new URL(ctx.request.url).searchParams.get("limit")) || undefined;
 					return await runLinkCheck(ctx, config, limit);
 				},
+			},
+			// 同じ物件の記事が二重になっていたら新しいほうをゴミ箱へ（管理者だけ）
+			dedupe: {
+				handler: async (ctx) => await runDedupe(ctx),
 			},
 			// ほかの業者のサイトにフィードがあるか調べる（?site=URL で1つだけ。なければ候補を全部）
 			probe: {
