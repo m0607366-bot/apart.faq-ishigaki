@@ -11,7 +11,7 @@
  * - 手動で今すぐ巡回: 管理画面にログインした状態で POST /_emdash/api/plugins/feed-import/run
  *   状態の確認:                                   GET  /_emdash/api/plugins/feed-import/status
  *   リンク切れの確認を今すぐ:                     POST /_emdash/api/plugins/feed-import/linkcheck?limit=100
- * - 毎日 2:00〜3:50（日本時間）に10分ごと、リンク切れの物件の記事をゴミ箱へ（runLinkCheck）
+ * - 毎日 3:00（日本時間）から10分ごと、リンク切れの物件の記事をゴミ箱へ（runLinkCheck。一回りしたらその日は終わり）
  */
 import type { PluginContext, ResolvedPlugin } from "emdash";
 import { definePlugin } from "emdash";
