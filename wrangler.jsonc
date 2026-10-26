@@ -13,6 +13,7 @@
 		{
 			"binding": "DB",
 			"database_name": "apart-faq-ishigaki-com",
+			"database_id": "477b75e7-f208-498c-81b1-49da793656b3",
 		},
 	],
 	"r2_buckets": [

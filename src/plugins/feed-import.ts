@@ -7,6 +7,7 @@
  * - カテゴリーは「リンク切れは商談成立済」（slug: excel）、タグはフィードの名前（業者名）
  * - 一度取り込んだ物件（リンク先URL）は二度と取り込まない（初回は既存の記事のリンクから一覧を作る）
  * - 記事のURLは WordPress と同じ「数字だけ」（今ある一番大きい番号 + 1）
+ * - 最初の1回は手動で動かす（それまで自動の巡回は休み。WordPress からの取り込み前に動いて二重にならないように）
  * - 手動で今すぐ巡回: 管理画面にログインした状態で POST /_emdash/api/plugins/feed-import/run
  *   状態の確認:                                   GET  /_emdash/api/plugins/feed-import/status
  */
@@ -271,6 +272,12 @@ export function createPlugin(config: FeedImportConfig): ResolvedPlugin {
 				timeout: 300_000,
 				handler: async (event, ctx) => {
 					if (!event.name.startsWith("crawl-")) return;
+					// WordPress からの取り込みが終わる前に動くと同じ物件が二重になるので、
+					// 最初の1回は管理者が手動（POST …/feed-import/run）で動かしてから自動にする
+					if (!(await ctx.kv.get(SEEN_KEY))) {
+						ctx.log.info("[feed-import] まだ手動で1回も動かしていないので、自動の巡回は休み");
+						return;
+					}
 					await runImport(ctx, config);
 				},
 			},
