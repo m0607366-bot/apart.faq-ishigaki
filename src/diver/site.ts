@@ -10,6 +10,7 @@ export const SITE = {
 	googleTag: "", // Googleアナリティクス（入れると有効）
 	cfBeaconToken: "", // Cloudflare Web Analytics（アクセス解析）のトークン
 	stickyPostId: "", // トップページの先頭に固定表示する記事（取り込み後に「はじめに」の記事IDを入れる）
+	thumbFromLink: true, // 写真のない記事は、リンク先（各社の物件ページ）の写真を一覧のサムネイルに使う
 };
 
 export interface MenuItem {

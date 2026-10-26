@@ -14,6 +14,11 @@ let cardUrl: string | null = null;
 if ((node?.style ?? "normal") === "normal" && !node?.listItem && Array.isArray(node?.children)) {
 	const text = node.children.map(textOf).join("").replace(/[\u200B\uFEFF]/g, "").trim();
 	if (/^https?:\/\/\S+$/.test(text)) cardUrl = text;
+	// apart: 「このサイトの記事を見る」だけの段落（各社の物件ページへのリンク）もカードにする
+	else if (text === "このサイトの記事を見る") {
+		const href = (node.markDefs ?? []).find((m: any) => m?._type === "link" && typeof m.href === "string")?.href;
+		if (href) cardUrl = String(href).replace(/&#0*38;|&amp;/gi, "&");
+	}
 }
 const yt = cardUrl ? youtubeId(cardUrl) : null;
 // 改ページの印（<!--nextpage-->）は本文には表示しない

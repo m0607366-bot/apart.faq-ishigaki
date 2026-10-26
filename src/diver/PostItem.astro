@@ -1,7 +1,8 @@
 ---
 // 記事一覧の1件（Diverの「サムネイル左・タイトル・日付・抜粋」）
 import { Image } from "emdash/ui";
-import { excerptOf, formatJaDate, isNew } from "./site";
+import { excerptOf, formatJaDate, isNew, SITE } from "./site";
+import { getLinkMeta } from "./linkmeta";
 import { getCategories } from "./categories";
 
 interface Props {
@@ -11,13 +12,23 @@ const { post } = Astro.props;
 const cat = post.data.terms?.category?.[0];
 const href = `/${post.id}/`;
 const cats = await getCategories();
+// apart: 写真がない記事は、リンク先（各社の物件ページ）の写真を一覧のサムネイルに使う
+let linkImage: string | null = null;
+if (!post.data.featured_image && (SITE as any).thumbFromLink) {
+	const href = JSON.stringify(post.data.content ?? "").match(/"href":"(https?:[^"]+)"/)?.[1];
+	if (href) {
+		try {
+			linkImage = (await getLinkMeta(href.replace(/&#0*38;|&amp;/gi, "&"))).image ?? null;
+		} catch {}
+	}
+}
 const categoryUrl = cats.url;
 ---
 
 <article class="d-item">
 	<a href={href} class="d-item__thumb" tabindex="-1" aria-hidden="true">
 		{isNew(post.data.publishedAt) && <span class="d-new">NEW!</span>}
-		{post.data.featured_image?.provider === "external" && post.data.featured_image?.src ? <img src={post.data.featured_image.src} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" /> : post.data.featured_image ? <Image image={post.data.featured_image} sizes="(max-width: 600px) 40vw, 240px" /> : <span class="noimg" />}
+		{post.data.featured_image?.provider === "external" && post.data.featured_image?.src ? <img src={post.data.featured_image.src} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" /> : post.data.featured_image ? <Image image={post.data.featured_image} sizes="(max-width: 600px) 40vw, 240px" /> : linkImage ? <img src={linkImage} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" /> : <span class="noimg" />}
 		{cat && <span class="d-item__cat">{cat.label}</span>}
 	</a>
 	<div class="d-item__body">
