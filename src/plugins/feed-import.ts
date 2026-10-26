@@ -359,6 +359,45 @@ export async function runLinkCheck(ctx: PluginContext, config: FeedImportConfig,
 	return result;
 }
 
+// ===== フィードを探す（ほかの不動産業者のサイトに RSS があるか調べる） =====
+const CANDIDATE_SITES = [
+	"https://itomax.jp/", "http://toubaru-kenzai.com/", "http://nakakikaku.net/", "https://www.daio-h.jp/",
+	"http://www.daio-yaeyama.jp/", "http://www.tyurasima.fudou-san.jp/", "http://www.nikai-shoji.com/", "http://hara-syouzi.com/",
+	"https://www.nanseihudousan.jp/", "https://i-island-f.jp/", "http://ishigaki-kariyushi.com/", "http://resort-in.jp/",
+	"https://eehome.jp/", "https://tm-more.com/", "http://www.e-imhome.com/", "http://sanhousyouji.com/",
+	"http://www.yaeyama-ishigaki.co.jp/", "http://www.grand-fill.jp/", "http://808080.info/ty/index.asp", "http://www.mensole-iju.com/",
+	"https://www.able.co.jp/okinawa/area/47207/list/",
+];
+const FEED_PATHS = ["feed/", "?feed=rss2", "rss/", "rss.xml", "feed.xml", "atom.xml", "index.xml", "index.rdf", "data.cgi?mode=rss"];
+
+async function probeSite(ctx: PluginContext, site: string) {
+	const doFetch = ctx.http ? ctx.http.fetch.bind(ctx.http) : fetch;
+	const out: { site: string; reachable: boolean; feeds: Array<{ url: string; title: string; items: number; latest: string[] }> } = { site, reachable: false, feeds: [] };
+	const candidates = new Set<string>();
+	try {
+		const res = await doFetch(site, { headers: { "User-Agent": UA } });
+		out.reachable = res.ok;
+		const html = await res.text();
+		for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
+			if (/type=["']application\/(rss|atom|rdf)\+xml["']/i.test(m[0])) {
+				const href = attr(m[0], "href");
+				if (href) candidates.add(new URL(href, res.url || site).toString());
+			}
+		}
+	} catch {}
+	const base = site.replace(/[^/]*$/, "");
+	for (const p of FEED_PATHS) candidates.add(new URL(p, base).toString());
+	for (const url of candidates) {
+		try {
+			const feed = await fetchFeed(ctx, url);
+			if (feed.items.length && !out.feeds.some((f) => f.title === feed.title && f.items === feed.items.length)) {
+				out.feeds.push({ url, title: feed.title, items: feed.items.length, latest: feed.items.slice(0, 3).map((i) => i.title) });
+			}
+		} catch {}
+	}
+	return out;
+}
+
 async function ensureSchedules(ctx: PluginContext, config: FeedImportConfig): Promise<void> {
 	if (!ctx.cron) return;
 	for (const [i, schedule] of config.schedules.entries()) await ctx.cron.schedule(`crawl-${i}`, { schedule });
@@ -408,6 +447,15 @@ export function createPlugin(config: FeedImportConfig): ResolvedPlugin {
 					await ensureSchedules(ctx, config);
 					const limit = Number(new URL(ctx.request.url).searchParams.get("limit")) || undefined;
 					return await runLinkCheck(ctx, config, limit);
+				},
+			},
+			// ほかの業者のサイトにフィードがあるか調べる（?site=URL で1つだけ。なければ候補を全部）
+			probe: {
+				handler: async (ctx) => {
+					const one = new URL(ctx.request.url).searchParams.get("site");
+					const sites = one ? [one] : CANDIDATE_SITES;
+					const results = await Promise.all(sites.map((site) => probeSite(ctx, site)));
+					return { found: results.filter((r) => r.feeds.length), notFound: results.filter((r) => !r.feeds.length).map((r) => ({ site: r.site, reachable: r.reachable })) };
 				},
 			},
 			// 最後の巡回結果、取り込み済みの件数、リンク切れでゴミ箱に入れた記事
