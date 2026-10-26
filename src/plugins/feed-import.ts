@@ -111,9 +111,9 @@ export function parseFeed(xml: string): Feed {
 	return { title: tagText(head, "title"), items };
 }
 
-async function fetchFeed(ctx: PluginContext, url: string): Promise<Feed> {
+async function fetchFeed(ctx: PluginContext, url: string, timeoutMs = 20_000): Promise<Feed> {
 	const doFetch = ctx.http ? ctx.http.fetch.bind(ctx.http) : fetch;
-	const res = await doFetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; apart.faq-ishigaki.com feed reader)" } });
+	const res = await doFetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; apart.faq-ishigaki.com feed reader)" }, signal: AbortSignal.timeout(timeoutMs) });
 	if (!res.ok) throw new Error(`HTTP ${res.status}`);
 	const bytes = new Uint8Array(await res.arrayBuffer());
 	// 文字コード（Shift_JIS・EUC-JP のフィードもある）: XML宣言 → Content-Type → UTF-8
@@ -275,7 +275,7 @@ type LinkState = "ok" | "dead" | "unreachable";
 async function checkLink(ctx: PluginContext, url: string): Promise<LinkState> {
 	const doFetch = ctx.http ? ctx.http.fetch.bind(ctx.http) : fetch;
 	try {
-		const res = await doFetch(url, { method: "GET", redirect: "follow", headers: { "User-Agent": UA } });
+		const res = await doFetch(url, { method: "GET", redirect: "follow", headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15_000) });
 		try {
 			await res.body?.cancel();
 		} catch {}
@@ -375,7 +375,7 @@ async function probeSite(ctx: PluginContext, site: string) {
 	const out: { site: string; reachable: boolean; feeds: Array<{ url: string; title: string; items: number; latest: string[] }> } = { site, reachable: false, feeds: [] };
 	const candidates = new Set<string>();
 	try {
-		const res = await doFetch(site, { headers: { "User-Agent": UA } });
+		const res = await doFetch(site, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(8000) });
 		out.reachable = res.ok;
 		const html = await res.text();
 		for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
@@ -387,13 +387,14 @@ async function probeSite(ctx: PluginContext, site: string) {
 	} catch {}
 	const base = site.replace(/[^/]*$/, "");
 	for (const p of FEED_PATHS) candidates.add(new URL(p, base).toString());
-	for (const url of candidates) {
-		try {
-			const feed = await fetchFeed(ctx, url);
-			if (feed.items.length && !out.feeds.some((f) => f.title === feed.title && f.items === feed.items.length)) {
-				out.feeds.push({ url, title: feed.title, items: feed.items.length, latest: feed.items.slice(0, 3).map((i) => i.title) });
-			}
-		} catch {}
+	// 候補をまとめて同時に（1つ8秒まで）
+	const feeds = await Promise.all([...candidates].map((url) => fetchFeed(ctx, url, 8000).then((feed) => ({ url, feed }), () => null)));
+	for (const r of feeds) {
+		if (!r || !r.feed.items.length) continue;
+		const { url, feed } = r;
+		if (!out.feeds.some((f) => f.title === feed.title && f.items === feed.items.length)) {
+			out.feeds.push({ url, title: feed.title, items: feed.items.length, latest: feed.items.slice(0, 3).map((i) => i.title) });
+		}
 	}
 	return out;
 }
@@ -453,7 +454,8 @@ export function createPlugin(config: FeedImportConfig): ResolvedPlugin {
 			probe: {
 				handler: async (ctx) => {
 					const one = new URL(ctx.request.url).searchParams.get("site");
-					const sites = one ? [one] : CANDIDATE_SITES;
+					if (!one) return { sites: CANDIDATE_SITES }; // 候補の一覧（1社ずつ ?site= で調べる。まとめてだと時間切れになる）
+					const sites = [one];
 					const results = await Promise.all(sites.map((site) => probeSite(ctx, site)));
 					return { found: results.filter((r) => r.feeds.length), notFound: results.filter((r) => !r.feeds.length).map((r) => ({ site: r.site, reachable: r.reachable })) };
 				},
