@@ -66,6 +66,9 @@ export default defineConfig({
 						schedules: ["0 4 * * *", "0 10 * * *"],
 						category: "excel", // 「リンク切れは商談成立済」
 						maxPerFeed: 30,
+						// リンク切れの確認（UTC）。日本時間の 2:00〜3:50 に10分ごと、1回150件ずつ（1日で記事全体を一回り）
+						linkCheckSchedules: ["*/10 17-18 * * *"],
+						linkCheckBatch: 150,
 						feeds: [
 							"http://www.yjs.ne.jp/?feed=rss2",
 							"http://www.forum-tamaki.com/data.cgi?mode=rss",

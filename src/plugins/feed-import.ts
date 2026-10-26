@@ -10,6 +10,8 @@
  * - 最初の1回は手動で動かす（それまで自動の巡回は休み。WordPress からの取り込み前に動いて二重にならないように）
  * - 手動で今すぐ巡回: 管理画面にログインした状態で POST /_emdash/api/plugins/feed-import/run
  *   状態の確認:                                   GET  /_emdash/api/plugins/feed-import/status
+ *   リンク切れの確認を今すぐ:                     POST /_emdash/api/plugins/feed-import/linkcheck?limit=100
+ * - 毎日 2:00〜3:50（日本時間）に10分ごと、リンク切れの物件の記事をゴミ箱へ（runLinkCheck）
  */
 import type { PluginContext, ResolvedPlugin } from "emdash";
 import { definePlugin } from "emdash";
@@ -25,6 +27,10 @@ export interface FeedImportConfig {
 	category: string;
 	/** 1回の巡回で1つのフィードから取り込む最大件数（初回や長く止まっていたときの暴走よけ） */
 	maxPerFeed?: number;
+	/** リンク切れの確認をする時刻（cron 形式・UTC）。1回で linkCheckBatch 件ずつ、記事全体を1日で一回りする */
+	linkCheckSchedules?: string[];
+	/** 1回のリンク確認で調べる記事の数 */
+	linkCheckBatch?: number;
 }
 
 const ID = "feed-import";
@@ -254,9 +260,109 @@ export async function runImport(ctx: PluginContext, config: FeedImportConfig): P
 	return result;
 }
 
+// ===== リンク切れの確認（リンク先がなくなった物件の記事をゴミ箱へ） =====
+// - リンク先が 404（見つからない）・410（削除済み）→ すぐゴミ箱へ
+// - つながらない（サイトが消えた・住所が引けない）→ 3日続いたらゴミ箱へ（一時的な不調では消さない）
+// - それ以外（表示できる・403・500 など）は残す
+// ゴミ箱に入った記事は、管理画面のゴミ箱から元に戻せる
+const LC_CURSOR = "lc:cursor";
+const LC_FAILS = "lc:fails";
+const LC_LOG = "lc:log";
+const LC_DONE = "lc:doneDate"; // 一回りし終えた日（日本時間）
+const UA = "Mozilla/5.0 (compatible; apart.faq-ishigaki.com link checker)";
+
+type LinkState = "ok" | "dead" | "unreachable";
+async function checkLink(ctx: PluginContext, url: string): Promise<LinkState> {
+	const doFetch = ctx.http ? ctx.http.fetch.bind(ctx.http) : fetch;
+	try {
+		const res = await doFetch(url, { method: "GET", redirect: "follow", headers: { "User-Agent": UA } });
+		try {
+			await res.body?.cancel();
+		} catch {}
+		if (res.status === 404 || res.status === 410) return "dead";
+		return "ok";
+	} catch {
+		return "unreachable";
+	}
+}
+function firstLink(content: unknown): string | null {
+	const links: string[] = [];
+	linksIn(content, links);
+	return links.find((l) => /^https?:/i.test(l)) ?? null;
+}
+
+export interface LinkCheckResult {
+	at: string;
+	checked: number;
+	trashed: Array<{ id: string; title: string; link: string; reason: string }>;
+	done: boolean; // 記事全体を一回りしたか
+}
+
+export async function runLinkCheck(ctx: PluginContext, config: FeedImportConfig, limit?: number): Promise<LinkCheckResult> {
+	const started = Date.now();
+	const batch = limit ?? config.linkCheckBatch ?? 150;
+	const result: LinkCheckResult = { at: new Date().toISOString(), checked: 0, trashed: [], done: false };
+	const fails = (await ctx.kv.get<Record<string, number>>(LC_FAILS)) ?? {};
+	let cursor = (await ctx.kv.get<string>(LC_CURSOR)) ?? undefined;
+	const queue: Array<{ id: string; title: string; link: string }> = [];
+	while (queue.length < batch) {
+		const page = await ctx.content.list("posts", { limit: 50, cursor });
+		for (const item of page.items) {
+			const link = firstLink(item.data?.content);
+			if (link) queue.push({ id: item.id, title: String(item.data?.title ?? ""), link });
+		}
+		if (!page.hasMore || !page.cursor) {
+			cursor = undefined;
+			result.done = true;
+			break;
+		}
+		cursor = page.cursor;
+	}
+	// 同時に5件ずつ確認（相手のサイトに負担をかけすぎない）
+	for (let i = 0; i < queue.length; i += 5) {
+		if (Date.now() - started > 240_000) {
+			result.done = false;
+			break;
+		}
+		await Promise.all(
+			queue.slice(i, i + 5).map(async (q) => {
+				const state = await checkLink(ctx, q.link);
+				result.checked++;
+				const k = normalizeLink(q.link);
+				let reason = "";
+				if (state === "dead") reason = "リンク先が見つからない（404/410）";
+				else if (state === "unreachable") {
+					fails[k] = (fails[k] ?? 0) + 1;
+					if (fails[k] >= 3) reason = "リンク先に3日続けてつながらない";
+				} else delete fails[k];
+				if (!reason) return;
+				try {
+					if (await ctx.content.delete!("posts", q.id)) {
+						delete fails[k];
+						result.trashed.push({ ...q, reason });
+					}
+				} catch (e) {
+					ctx.log.warn(`[feed-import] trash ${q.id}: ${e instanceof Error ? e.message : e}`);
+				}
+			}),
+		);
+	}
+	await ctx.kv.set(LC_FAILS, fails);
+	if (cursor) await ctx.kv.set(LC_CURSOR, cursor);
+	else await ctx.kv.delete(LC_CURSOR);
+	// ゴミ箱に入れた記事の記録（新しい順に500件まで）
+	if (result.trashed.length) {
+		const log = (await ctx.kv.get<LinkCheckResult["trashed"]>(LC_LOG)) ?? [];
+		await ctx.kv.set(LC_LOG, [...result.trashed.map((t) => ({ ...t, at: result.at })), ...log].slice(0, 500));
+	}
+	ctx.log.info(`[feed-import] link check: ${result.checked} checked, ${result.trashed.length} trashed`);
+	return result;
+}
+
 async function ensureSchedules(ctx: PluginContext, config: FeedImportConfig): Promise<void> {
 	if (!ctx.cron) return;
 	for (const [i, schedule] of config.schedules.entries()) await ctx.cron.schedule(`crawl-${i}`, { schedule });
+	for (const [i, schedule] of (config.linkCheckSchedules ?? []).entries()) await ctx.cron.schedule(`linkcheck-${i}`, { schedule });
 }
 
 export function createPlugin(config: FeedImportConfig): ResolvedPlugin {
@@ -271,14 +377,20 @@ export function createPlugin(config: FeedImportConfig): ResolvedPlugin {
 			cron: {
 				timeout: 300_000,
 				handler: async (event, ctx) => {
-					if (!event.name.startsWith("crawl-")) return;
+					if (!event.name.startsWith("crawl-") && !event.name.startsWith("linkcheck-")) return;
 					// WordPress からの取り込みが終わる前に動くと同じ物件が二重になるので、
 					// 最初の1回は管理者が手動（POST …/feed-import/run）で動かしてから自動にする
 					if (!(await ctx.kv.get(SEEN_KEY))) {
-						ctx.log.info("[feed-import] まだ手動で1回も動かしていないので、自動の巡回は休み");
+						ctx.log.info("[feed-import] まだ手動で1回も動かしていないので、自動の巡回・リンク確認は休み");
 						return;
 					}
-					await runImport(ctx, config);
+					if (event.name.startsWith("linkcheck-")) {
+						// 1日に一回りしたら、その日はもう確認しない（「3日続けて」を正しく数えるため）
+						const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+						if ((await ctx.kv.get<string>(LC_DONE)) === today) return;
+						const r = await runLinkCheck(ctx, config);
+						if (r.done) await ctx.kv.set(LC_DONE, today);
+					} else await runImport(ctx, config);
 				},
 			},
 		},
@@ -290,11 +402,28 @@ export function createPlugin(config: FeedImportConfig): ResolvedPlugin {
 					return await runImport(ctx, config);
 				},
 			},
-			// 最後の巡回結果と、取り込み済みの件数
+			// リンク切れの確認を今すぐ（管理者だけ）。?limit=件数。続きは次の呼び出しで（done: true で一回り）
+			linkcheck: {
+				handler: async (ctx) => {
+					await ensureSchedules(ctx, config);
+					const limit = Number(new URL(ctx.request.url).searchParams.get("limit")) || undefined;
+					return await runLinkCheck(ctx, config, limit);
+				},
+			},
+			// 最後の巡回結果、取り込み済みの件数、リンク切れでゴミ箱に入れた記事
 			status: {
 				handler: async (ctx) => {
 					const seen = (await ctx.kv.get<string[]>(SEEN_KEY)) ?? [];
-					return { lastRun: await ctx.kv.get(LAST_KEY), seen: seen.length, schedules: config.schedules, feeds: config.feeds };
+					const trashed = (await ctx.kv.get<unknown[]>(LC_LOG)) ?? [];
+					return {
+						lastRun: await ctx.kv.get(LAST_KEY),
+						seen: seen.length,
+						schedules: config.schedules,
+						linkCheckSchedules: config.linkCheckSchedules ?? [],
+						feeds: config.feeds,
+						trashedCount: trashed.length,
+						trashedRecent: trashed.slice(0, 50),
+					};
 				},
 			},
 		},
