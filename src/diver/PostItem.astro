@@ -29,7 +29,7 @@ const categoryUrl = cats.url;
 	<a href={href} class="d-item__thumb" tabindex="-1" aria-hidden="true">
 		{isNew(post.data.publishedAt) && <span class="d-new">NEW!</span>}
 		{post.data.featured_image?.provider === "external" && post.data.featured_image?.src ? <img src={post.data.featured_image.src} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" /> : post.data.featured_image ? <Image image={post.data.featured_image} sizes="(max-width: 600px) 40vw, 240px" /> : linkImage ? <img src={linkImage} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" /> : <span class="noimg" />}
-		{cat && <span class="d-item__cat">{cat.label}</span>}
+		{cat && (SITE as any).thumbCategory !== false && <span class="d-item__cat">{cat.label}</span>}
 	</a>
 	<div class="d-item__body">
 		<h3 class="d-item__title"><a href={href}>{post.data.title}</a></h3>
