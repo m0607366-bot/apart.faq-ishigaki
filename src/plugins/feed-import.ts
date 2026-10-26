@@ -416,7 +416,7 @@ async function probeSite(ctx: PluginContext, site: string) {
 	return out;
 }
 
-// ===== 同じ物件の記事が二重になっていたら、新しいほうをゴミ箱へ =====
+// ===== 取り込みの重なりでできた記事（番号でない名前で、同じリンクの番号の記事があるもの）をゴミ箱へ =====
 export async function runDedupe(ctx: PluginContext) {
 	const groups = new Map<string, Array<{ id: string; slug: string; title: string }>>();
 	let cursor: string | undefined;
@@ -432,14 +432,15 @@ export async function runDedupe(ctx: PluginContext) {
 		if (!page.hasMore || !page.cursor) break;
 		cursor = page.cursor;
 	}
-	const num = (s: string) => (NUMERIC.test(s) ? Number(s) : Number.MAX_SAFE_INTEGER);
 	const trashed: Array<{ slug: string; title: string; kept: string }> = [];
 	for (const list of groups.values()) {
 		if (list.length < 2) continue;
-		list.sort((a, b) => num(a.slug) - num(b.slug)); // 番号の小さい（古い）ほうを残す
-		for (const dup of list.slice(1)) {
+		// WordPress から来た記事（番号の名前）は、同じリンクでも消さない（同じ部屋が再び空いて別の記事になっていることがある）。
+		// 消すのは、番号の記事があるときの「番号でない名前の記事」（取り込みの重なりでできた post-0 など）だけ
+		if (!list.some((x) => NUMERIC.test(x.slug))) continue;
+		for (const dup of list.filter((x) => !NUMERIC.test(x.slug))) {
 			try {
-				if (await ctx.content.delete!("posts", dup.id)) trashed.push({ slug: dup.slug, title: dup.title, kept: list[0].slug });
+				if (await ctx.content.delete!("posts", dup.id)) trashed.push({ slug: dup.slug, title: dup.title, kept: list.filter((x) => NUMERIC.test(x.slug)).map((x) => x.slug).join(",") });
 			} catch (e) {
 				ctx.log.warn(`[feed-import] dedupe ${dup.id}: ${e instanceof Error ? e.message : e}`);
 			}
