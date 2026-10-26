@@ -36,6 +36,7 @@ export interface FeedImportConfig {
 const ID = "feed-import";
 const SEEN_KEY = "seen"; // 取り込み済みのリンク一覧
 const LAST_KEY = "lastRun"; // 最後の巡回結果
+const FEED_FAILS = "feedFails"; // フィードごとの続けて失敗した回数
 const NUMERIC = /^\d+$/;
 // 自動の読み取りを断るサイト（フォーラム環など）があるので、普通のブラウザと同じ名乗りで読みに行く
 const BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
@@ -216,14 +217,24 @@ export async function runImport(ctx: PluginContext, config: FeedImportConfig): P
 	const categoryId = await termId(ctx, "category", { slug: config.category });
 	const max = config.maxPerFeed ?? 30;
 
+	// サイト閉鎖などで読めないフィードは、続けて失敗した回数を数え、14回（1日2回 × 7日）続いたら巡回をやめる
+	// （status の stoppedFeeds に出る。サイトが戻ったら kv の feedFails から消すか、astro.config.mjs から外す）
+	const feedFails = (await ctx.kv.get<Record<string, { count: number; error: string }>>(FEED_FAILS)) ?? {};
 	for (const url of config.feeds) {
 		const report: RunResult["feeds"][number] = { url };
 		result.feeds.push(report);
+		if ((feedFails[url]?.count ?? 0) >= 14) {
+			report.error = `巡回をやめています（${feedFails[url].error}）`;
+			continue;
+		}
 		let feed: Feed;
 		try {
 			feed = await fetchFeed(ctx, url);
+			delete feedFails[url];
 		} catch (e) {
 			report.error = e instanceof Error ? e.message : String(e);
+			// サイトがない・フィードがない（住所が引けない・404・410）ときだけ数える。403 や一時的な不調は数えない
+			if (/no addresses|ENOTFOUND|HTTP 404|HTTP 410/i.test(report.error)) feedFails[url] = { count: (feedFails[url]?.count ?? 0) + 1, error: report.error };
 			ctx.log.warn(`[feed-import] ${url}: ${report.error}`);
 			continue;
 		}
@@ -260,6 +271,7 @@ export async function runImport(ctx: PluginContext, config: FeedImportConfig): P
 		}
 		await ctx.kv.set(SEEN_KEY, [...seen]);
 	}
+	await ctx.kv.set(FEED_FAILS, feedFails);
 	await ctx.kv.set(LAST_KEY, result);
 	ctx.log.info(`[feed-import] added ${result.added}`);
 	return result;
@@ -547,6 +559,9 @@ export function createPlugin(config: FeedImportConfig): ResolvedPlugin {
 						schedules: config.schedules,
 						linkCheckSchedules: config.linkCheckSchedules ?? [],
 						feeds: config.feeds,
+						stoppedFeeds: Object.entries((await ctx.kv.get<Record<string, { count: number; error: string }>>(FEED_FAILS)) ?? {})
+							.filter(([, v]) => v.count >= 14)
+							.map(([url, v]) => ({ url, error: v.error })),
 						trashedCount: trashed.length,
 						trashedRecent: trashed.slice(0, 50),
 					};
