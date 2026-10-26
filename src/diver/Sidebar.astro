@@ -2,7 +2,8 @@
 // サイドバー：管理画面の「ウィジェット」（sidebar）の設定どおりに、Diver風の見た目で表示する
 import { getEmDashCollection, getWidgetArea } from "emdash";
 import { Image, PortableText } from "emdash/ui";
-import { archiveMonths, formatJaDate } from "./site";
+import { archiveMonths, formatJaDate, SITE } from "./site";
+import { getLinkMeta } from "./linkmeta";
 import { getCategories, type CatNode } from "./categories";
 import { ptComponents } from "./pt";
 
@@ -19,6 +20,21 @@ const [{ entries: recent }, catInfo] = await Promise.all([
 		: Promise.resolve({ entries: [] as any[] }),
 	needCats ? getCategories() : Promise.resolve(null),
 ]);
+// apart: 写真のない記事は、リンク先（各社の物件ページ）の写真をサムネイルに使う（一覧と同じ）
+const linkImages = new Map<string, string>();
+if ((SITE as any).thumbFromLink) {
+	await Promise.all(
+		recent.map(async (p: any) => {
+			if (p.data.featured_image) return;
+			const href = JSON.stringify(p.data.content ?? "").match(/"href":"(https?:[^"]+)"/)?.[1];
+			if (!href) return;
+			try {
+				const img = (await getLinkMeta(href.replace(/&#0*38;|&amp;/gi, "&"))).image;
+				if (img) linkImages.set(p.id, img);
+			} catch {}
+		}),
+	);
+}
 type Node = CatNode;
 const roots: Node[] = catInfo?.roots ?? [];
 const bySlug = catInfo?.bySlug ?? new Map<string, Node>();
@@ -56,7 +72,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 								<a href={`/${p.id}/`}>
 									{showThumbs && (
 										<span class="w-posts__thumb">
-											{p.data.featured_image?.provider === "external" && p.data.featured_image?.src ? <img src={p.data.featured_image.src} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" /> : p.data.featured_image ? <Image image={p.data.featured_image} sizes="100px" /> : <span class="noimg" />}
+											{p.data.featured_image?.provider === "external" && p.data.featured_image?.src ? <img src={p.data.featured_image.src} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" /> : p.data.featured_image ? <Image image={p.data.featured_image} sizes="100px" /> : linkImages.get(p.id) ? <img src={linkImages.get(p.id)} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" /> : <span class="noimg" />}
 										</span>
 									)}
 									<span class="w-posts__text">
