@@ -56,7 +56,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 								<a href={`/${p.id}/`}>
 									{showThumbs && (
 										<span class="w-posts__thumb">
-											{p.data.featured_image ? <Image image={p.data.featured_image} sizes="100px" /> : <span class="noimg" />}
+											{p.data.featured_image?.provider === "external" && p.data.featured_image?.src ? <img src={p.data.featured_image.src} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" /> : p.data.featured_image ? <Image image={p.data.featured_image} sizes="100px" /> : <span class="noimg" />}
 										</span>
 									)}
 									<span class="w-posts__text">

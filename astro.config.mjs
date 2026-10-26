@@ -54,6 +54,34 @@ export default defineConfig({
 				cloudflareEmail({
 					from: { email: "noreply@mail.delta-a.net", name: "石垣島マンション・アパート一覧" },
 				}),
+				// 不動産業者のフィードから新着物件を自動で取り込む（src/plugins/feed-import.ts）
+				{
+					id: "feed-import",
+					version: "1.0.0",
+					entrypoint: fileURLToPath(new URL("./src/plugins/feed-import.ts", import.meta.url)),
+					format: "native",
+					capabilities: ["content:write", "content:publish", "taxonomies:write", "network:request:unrestricted"],
+					options: {
+						// 巡回する時刻（UTC）。日本時間の 13:00 と 19:00
+						schedules: ["0 4 * * *", "0 10 * * *"],
+						category: "excel", // 「リンク切れは商談成立済」
+						maxPerFeed: 30,
+						feeds: [
+							"http://www.yjs.ne.jp/?feed=rss2",
+							"http://www.forum-tamaki.com/data.cgi?mode=rss",
+							"http://mutsumi-estate.com/?feed=rss2",
+							"http://ishigaki-fd.com/feed",
+							"http://okinawa.e-uchina.net/shop/005664/feed/",
+							"https://www.jjc-ishigaki.jp/feed/?post_type=chintai",
+							"http://rss.hpw.jp/1748.rdf",
+							"http://www.sogokeikaku.com/data.cgi?mode=rss",
+							"http://www.ushirorealestate.co.jp/?feed=atom",
+							"http://yaeyama-takken.jp/data.cgi?mode=rss",
+							"https://yaeyama-home.com/rss/",
+							"https://www.lyoncorporation.com/category/list_ishigaki_yaeyama_llc/feed",
+						],
+					},
+				},
 			],
 		}),
 	],

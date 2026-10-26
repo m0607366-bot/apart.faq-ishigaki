@@ -17,7 +17,7 @@ const categoryUrl = cats.url;
 <article class="d-item">
 	<a href={href} class="d-item__thumb" tabindex="-1" aria-hidden="true">
 		{isNew(post.data.publishedAt) && <span class="d-new">NEW!</span>}
-		{post.data.featured_image ? <Image image={post.data.featured_image} sizes="(max-width: 600px) 40vw, 240px" /> : <span class="noimg" />}
+		{post.data.featured_image?.provider === "external" && post.data.featured_image?.src ? <img src={post.data.featured_image.src} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" /> : post.data.featured_image ? <Image image={post.data.featured_image} sizes="(max-width: 600px) 40vw, 240px" /> : <span class="noimg" />}
 		{cat && <span class="d-item__cat">{cat.label}</span>}
 	</a>
 	<div class="d-item__body">
