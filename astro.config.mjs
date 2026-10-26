@@ -77,7 +77,7 @@ export default defineConfig({
 							"http://ishigaki-fd.com/feed",
 							"https://www.jjc-ishigaki.jp/feed/?post_type=chintai",
 							"http://www.sogokeikaku.com/data.cgi?mode=rss",
-							"http://yaeyama-takken.jp/data.cgi?mode=rss",
+							"https://yaeyama-takken.jp/feed", // 2026-10 に data.cgi?mode=rss から変更
 							"https://yaeyama-home.com/rss/",
 							"https://www.lyoncorporation.com/category/list_ishigaki_yaeyama_llc/feed",
 							"https://eehome.jp/feed/", // イイホーム企画（2026-10 に追加）

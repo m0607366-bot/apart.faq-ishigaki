@@ -438,6 +438,35 @@ export async function runDedupe(ctx: PluginContext) {
 	return { posts: [...groups.values()].reduce((n, l) => n + l.length, 0), trashed: trashed.length, list: trashed };
 }
 
+// ===== やり直し: このプラグインが作った記事をすべてゴミ箱へ、取り込み済みの一覧も消す =====
+// （本文の _key が "fi" で始まるもの＝このプラグインが作った記事。WordPress から取り込んだ記事には触らない）
+export async function runReset(ctx: PluginContext) {
+	const mine: Array<{ id: string; slug: string; title: string }> = [];
+	let cursor: string | undefined;
+	for (let i = 0; i < 200; i++) {
+		const page = await ctx.content.list("posts", { limit: 100, cursor });
+		for (const item of page.items) {
+			const c = item.data?.content;
+			if (Array.isArray(c) && c.length === 1 && typeof c[0]?._key === "string" && c[0]._key.startsWith("fi")) {
+				mine.push({ id: item.id, slug: String(item.slug ?? ""), title: String(item.data?.title ?? "") });
+			}
+		}
+		if (!page.hasMore || !page.cursor) break;
+		cursor = page.cursor;
+	}
+	let trashed = 0;
+	for (const m of mine) {
+		try {
+			if (await ctx.content.delete!("posts", m.id)) trashed++;
+		} catch (e) {
+			ctx.log.warn(`[feed-import] reset ${m.id}: ${e instanceof Error ? e.message : e}`);
+		}
+	}
+	await ctx.kv.delete(SEEN_KEY);
+	await ctx.kv.delete(LAST_KEY);
+	return { found: mine.length, trashed };
+}
+
 async function ensureSchedules(ctx: PluginContext, config: FeedImportConfig): Promise<void> {
 	if (!ctx.cron) return;
 	for (const [i, schedule] of config.schedules.entries()) await ctx.cron.schedule(`crawl-${i}`, { schedule });
@@ -488,6 +517,10 @@ export function createPlugin(config: FeedImportConfig): ResolvedPlugin {
 					const limit = Number(new URL(ctx.request.url).searchParams.get("limit")) || undefined;
 					return await runLinkCheck(ctx, config, limit);
 				},
+			},
+			// やり直し（このプラグインが作った記事をゴミ箱へ、取り込み済みの一覧を消す。自動の巡回は次に手動で run するまで休み）
+			reset: {
+				handler: async (ctx) => await runReset(ctx),
 			},
 			// 同じ物件の記事が二重になっていたら新しいほうをゴミ箱へ（管理者だけ）
 			dedupe: {
