@@ -63,13 +63,51 @@ async function selfMeta(u: URL): Promise<LinkMeta | null> {
 	return null;
 }
 
+// 本文の物件写真を OGP 画像より優先する（apart の物件ページ用）
+const CONTENT_IMAGE_FIRST = true;
+// 写真でないもの（ロゴ・ボタン・アイコンなど）の名前
+const NOT_PHOTO = /logo|banner|bnr|icon|ico_|header|footer|btn|button|bg[_-]|back|sns|line|twitter|facebook|insta|qr|arrow|map|noimage|no_image|nophoto|spacer|blank|loading|gif$|svg$|common|parts|title|tel|mail|contact|badge|ribbon/i;
+
+/** 本文から物件写真らしい画像を選ぶ（ロゴ・ボタン・小さい画像は除く。リンク先の大きい写真も見る） */
+export function contentPhoto(body: string, base: URL, ogImage?: string): string | undefined {
+	const seen = new Set<string>();
+	const candidates: string[] = [];
+	const add = (raw: string | undefined) => {
+		if (!raw) return;
+		let url: string;
+		try {
+			url = new URL(decodeEntities(raw.trim()), base).toString();
+		} catch {
+			return;
+		}
+		if (seen.has(url) || !/\.(jpe?g|png|webp)(\?|$)/i.test(url) || NOT_PHOTO.test(url.split("/").pop() ?? "")) return;
+		if (ogImage && url === new URL(ogImage, base).toString()) return; // OGP と同じ（たいていロゴ）は使わない
+		seen.add(url);
+		candidates.push(url);
+	};
+	// 本文の <img>（遅延読み込みの data-src なども）。幅・高さが小さいものは除く
+	for (const m of body.matchAll(/<img\b[^>]*>/gi)) {
+		const tag = m[0];
+		const w = Number(tag.match(/\swidth=["']?(\d+)/i)?.[1] ?? 0);
+		const h = Number(tag.match(/\sheight=["']?(\d+)/i)?.[1] ?? 0);
+		if ((w && w < 150) || (h && h < 100)) continue;
+		const src = tag.match(/\s(?:data-src|data-lazy-src|data-original|src)=["']([^"']+)["']/i)?.[1];
+		add(src);
+	}
+	// 写真の拡大表示へのリンク（<a href="…jpg">）
+	for (const m of body.matchAll(/<a\b[^>]*href=["']([^"']+\.(?:jpe?g|png|webp))["']/gi)) add(m[1]);
+	// アップロードされた写真・物件写真らしい場所を先に
+	const score = (u: string) => (/\/(uploads|fudo|bukken|room|photo|images?\/(?:property|estate|item))/i.test(u) ? 0 : 1);
+	return candidates.sort((a, b) => score(a) - score(b))[0];
+}
+
 /** 外部サイトは、ページのOGP（og:title など）を取得する。Cloudflareで1週間キャッシュ */
 async function remoteMeta(u: URL): Promise<LinkMeta | null> {
 	try {
 		const res = await fetch(u.toString(), {
 			headers: { "User-Agent": "Mozilla/5.0 (compatible; LinkCardBot/1.0; +https://apart.faq-ishigaki.com/)", Accept: "text/html" },
 			redirect: "follow",
-			signal: AbortSignal.timeout(2500),
+			signal: AbortSignal.timeout(5000),
 			// @ts-ignore Cloudflare固有のキャッシュ指定
 			cf: { cacheTtl: 604800, cacheEverything: true },
 		});
@@ -84,6 +122,11 @@ async function remoteMeta(u: URL): Promise<LinkMeta | null> {
 		const description =
 			metaContent(head, "og:description") ?? metaContent(head, "description") ?? metaContent(head, "twitter:description") ?? "";
 		let image = metaContent(head, "og:image") ?? metaContent(head, "twitter:image");
+		// apart: 物件ページの OGP 画像は業者のロゴや看板のことが多いので、本文の物件写真を優先する
+		if (CONTENT_IMAGE_FIRST) {
+			const photo = contentPhoto(html.slice(head.length), u, image);
+			if (photo) image = photo;
+		}
 		// OGP画像がないページは、本文中の最初の写真を使う
 		if (!image) {
 			const body = html.slice(head.length);
@@ -99,7 +142,7 @@ async function remoteMeta(u: URL): Promise<LinkMeta | null> {
 }
 
 /** 外部サイトの取得結果は、Cloudflareのキャッシュに30日保存して、毎回取りに行かない */
-const META_CACHE_PREFIX = "https://linkmeta.internal/v1/";
+const META_CACHE_PREFIX = "https://linkmeta.internal/v2/"; // 取り出し方を変えたら番号を上げる（古い結果を使わない）
 async function cachedRemoteMeta(u: URL): Promise<LinkMeta | null> {
 	const cache: Cache | undefined = (globalThis as any).caches?.default;
 	const key = META_CACHE_PREFIX + encodeURIComponent(u.toString());

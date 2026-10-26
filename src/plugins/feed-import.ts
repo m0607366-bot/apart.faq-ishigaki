@@ -531,6 +531,20 @@ export function createPlugin(config: FeedImportConfig): ResolvedPlugin {
 					return await runLinkCheck(ctx, config, limit);
 				},
 			},
+			// 物件ページの画像の候補を見る（カードの写真の選び方の調整用。?url=物件ページ）
+			images: {
+				handler: async (ctx) => {
+					const url = new URL(ctx.request.url).searchParams.get("url");
+					if (!url) return { error: "?url= を付けてください" };
+					const doFetch = ctx.http ? ctx.http.fetch.bind(ctx.http) : fetch;
+					const res = await doFetch(url, { headers: { "User-Agent": BROWSER_UA }, signal: AbortSignal.timeout(10_000) });
+					const html = await res.text();
+					const og = html.match(/<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i)?.[1];
+					const imgs = [...html.matchAll(/<img\b[^>]*>/gi)].map((m) => m[0].replace(/\s+/g, " ").slice(0, 300)).slice(0, 40);
+					const links = [...html.matchAll(/<a\b[^>]*href=["']([^"']+\.(?:jpe?g|png|webp))["']/gi)].map((m) => m[1]).slice(0, 20);
+					return { status: res.status, og, imgs, links };
+				},
+			},
 			// やり直し（このプラグインが作った記事をゴミ箱へ、取り込み済みの一覧を消す。自動の巡回は次に手動で run するまで休み）
 			reset: {
 				handler: async (ctx) => await runReset(ctx),
