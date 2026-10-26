@@ -2,9 +2,9 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "apart-faq-ishigaki-com",
 	"main": "./src/worker.ts",
-	// 本番ドメイン（Cloudflareのカスタムドメイン）は切り替えのときに下の1行のコメント（//）を外す。仮のアドレス（workers.dev）も残す（管理画面のログイン移行に使う）
+	// 本番ドメイン（Cloudflareのカスタムドメイン）。仮のアドレス（workers.dev）も残す（管理画面のログイン移行に使う）
 	"workers_dev": true,
-	// "routes": [{ "pattern": "apart.faq-ishigaki.com", "custom_domain": true }],
+	"routes": [{ "pattern": "apart.faq-ishigaki.com", "custom_domain": true }],
 	"compatibility_date": "2026-02-24",
 	"compatibility_flags": [
 		"nodejs_compat"
