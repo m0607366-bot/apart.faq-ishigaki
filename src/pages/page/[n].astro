@@ -1,0 +1,13 @@
+---
+// トップページの2ページ目以降（WordPressと同じ /page/2/）
+import Layout from "../../diver/Layout.astro";
+import HomeList from "../../diver/HomeList.astro";
+import { SITE } from "../../diver/site";
+
+const n = Number(Astro.params.n);
+if (!Number.isInteger(n) || n < 2) return Astro.redirect("/", 301);
+---
+
+<Layout title={`${SITE.title} - ${n}ページ`} canonical={`${Astro.url.origin}/page/${n}/`}>
+	<HomeList page={n} />
+</Layout>

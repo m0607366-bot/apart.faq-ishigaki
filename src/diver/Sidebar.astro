@@ -1,0 +1,191 @@
+---
+// サイドバー：管理画面の「ウィジェット」（sidebar）の設定どおりに、Diver風の見た目で表示する
+import { getEmDashCollection, getWidgetArea } from "emdash";
+import { Image, PortableText } from "emdash/ui";
+import { archiveMonths, formatJaDate } from "./site";
+import { getCategories, type CatNode } from "./categories";
+import { ptComponents } from "./pt";
+
+const area = await getWidgetArea("sidebar");
+const widgets = area?.widgets ?? [];
+
+// 必要なデータだけ読む
+const recentWidget = widgets.find((w) => w.componentId === "core:recent-posts");
+const recentCount = Number(recentWidget?.componentProps?.count ?? 5) || 5;
+const needCats = widgets.some((w) => w.componentId === "core:categories");
+const [{ entries: recent }, catInfo] = await Promise.all([
+	recentWidget
+		? getEmDashCollection("posts", { orderBy: { published_at: "desc" }, limit: recentCount })
+		: Promise.resolve({ entries: [] as any[] }),
+	needCats ? getCategories() : Promise.resolve(null),
+]);
+type Node = CatNode;
+const roots: Node[] = catInfo?.roots ?? [];
+const bySlug = catInfo?.bySlug ?? new Map<string, Node>();
+const categoryUrl = (slug: string) => catInfo?.url(slug) ?? `/category/${slug}/`;
+const total = (n: Node): number => n.count + n.children.reduce((s, c) => s + total(c), 0);
+const visible = (n: Node) => total(n) > 0;
+
+const months = archiveMonths();
+const years = [...new Set(months.map((m) => m.y))];
+const pad = (n: number) => String(n).padStart(2, "0");
+---
+
+{
+	widgets.map((w) => {
+		const props: Record<string, any> = w.componentProps ?? {};
+		if (w.componentId === "core:search") {
+			return (
+				<div class="widget widget-search">
+					{w.title && <div class="widget-label">{w.title}</div>}
+					<form action="/search" method="get" class="d-search">
+						<input type="search" name="q" aria-label="検索" placeholder={props.placeholder ?? ""} />
+						<button type="submit">検索</button>
+					</form>
+				</div>
+			);
+		}
+		if (w.componentId === "core:recent-posts") {
+			const showThumbs = props.showThumbnails !== false;
+			return (
+				<div class="widget">
+					{w.title && <div class="widgettitle">{w.title}</div>}
+					<ul class:list={["w-posts", !showThumbs && "no-thumb"]}>
+						{recent.map((p: any) => (
+							<li>
+								<a href={`/${p.id}/`}>
+									{showThumbs && (
+										<span class="w-posts__thumb">
+											{p.data.featured_image ? <Image image={p.data.featured_image} sizes="100px" /> : <span class="noimg" />}
+										</span>
+									)}
+									<span class="w-posts__text">
+										<span class="w-posts__title">{p.data.title}</span>
+										{props.showDate !== false && <span class="w-posts__date">{formatJaDate(p.data.publishedAt)}</span>}
+									</span>
+								</a>
+							</li>
+						))}
+					</ul>
+				</div>
+			);
+		}
+		if (w.componentId === "core:categories") {
+			const showCount = props.showCount !== false;
+			const hierarchical = props.hierarchical !== false;
+			const flat = [...bySlug.values()].filter((n) => n.count > 0);
+			return (
+				<div class="widget">
+					{w.title && <div class="widgettitle">{w.title}</div>}
+					{hierarchical ? (
+						<ul class="w-cats w-cats--tree">
+							{roots.filter(visible).map((n) => (
+								<li>
+									{n.children.some(visible) ? (
+										<details>
+											<summary>
+												<a href={categoryUrl(n.slug)}>{n.label}</a>
+												{showCount && <span class="count">({n.count})</span>}
+											</summary>
+											<ul>
+												{n.children.filter(visible).map((c) => (
+													<li>
+														{c.children.some(visible) ? (
+															<details>
+																<summary>
+																	<a href={categoryUrl(c.slug)}>{c.label}</a>
+																	{showCount && <span class="count">({c.count})</span>}
+																</summary>
+																<ul>
+																	{c.children.filter(visible).map((g) => (
+																		<li class="leaf">
+																			<a href={categoryUrl(g.slug)}>{g.label}</a>
+																			{showCount && <span class="count">({g.count})</span>}
+																		</li>
+																	))}
+																</ul>
+															</details>
+														) : (
+															<div class="leaf">
+																<a href={categoryUrl(c.slug)}>{c.label}</a>
+																{showCount && <span class="count">({c.count})</span>}
+															</div>
+														)}
+													</li>
+												))}
+											</ul>
+										</details>
+									) : (
+										<div class="leaf">
+											<a href={categoryUrl(n.slug)}>{n.label}</a>
+											{showCount && <span class="count">({n.count})</span>}
+										</div>
+									)}
+								</li>
+							))}
+						</ul>
+					) : (
+						<ul class="w-cats">
+							{flat.map((n) => (
+								<li>
+									<a href={categoryUrl(n.slug)}>{n.label}</a>
+									{showCount && <span class="count">({n.count})</span>}
+								</li>
+							))}
+						</ul>
+					)}
+				</div>
+			);
+		}
+		if (w.componentId === "core:archives") {
+			const yearly = props.type === "yearly";
+			const limit = Number(props.limit ?? 0) || undefined;
+			return (
+				<div class="widget">
+					{w.title && <div class="widgettitle">{w.title}</div>}
+					{yearly ? (
+						<ul class="w-archive">
+							{years.slice(0, limit).map((y, i) => (
+								<li>
+									<details open={i === 0}>
+										<summary>
+											<a href={`/date/${y}/`}>{y}年</a>
+										</summary>
+										<ul>
+											{months
+												.filter((m) => m.y === y)
+												.map((m) => (
+													<li>
+														<a href={`/date/${y}/${pad(m.m)}/`}>{m.m}月</a>
+													</li>
+												))}
+										</ul>
+									</details>
+								</li>
+							))}
+						</ul>
+					) : (
+						<ul class="w-archive w-archive--monthly">
+							{months.slice(0, limit ?? 12).map((m) => (
+								<li>
+									<a href={`/date/${m.y}/${pad(m.m)}/`}>{m.y}年{m.m}月</a>
+								</li>
+							))}
+						</ul>
+					)}
+				</div>
+			);
+		}
+		if (w.type === "content" && w.content) {
+			return (
+				<div class="widget">
+					{w.title && <div class="widgettitle">{w.title}</div>}
+					<div class="w-content d-content">
+						<PortableText value={w.content as any} components={ptComponents} />
+					</div>
+				</div>
+			);
+		}
+		return null;
+	})
+}

@@ -1,0 +1,117 @@
+---
+import { ptComponents } from "../../diver/pt";
+import { getEmDashEntry, getEmDashCollection, getSeoMeta, decodeSlug } from "emdash";
+import { Image, PortableText } from "emdash/ui";
+import Layout from "../../diver/Layout.astro";
+import Breadcrumb from "../../diver/Breadcrumb.astro";
+import { SITE, formatJaDate, splitPages } from "../../diver/site";
+import { getCategories } from "../../diver/categories";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.rewrite("/404");
+
+// 下書きのプレビュー（?_preview=…）は転送せず、キャッシュもしない
+const isPreview = Astro.url.searchParams.has("_preview");
+if (isPreview && Astro.cache?.enabled) Astro.cache.set(false);
+
+// WordPressと同じURL（/22396/）を正とする
+if (!isPreview && Astro.originPathname.startsWith("/posts/")) {
+	return Astro.redirect(`/${slug}/`, 301);
+}
+
+const { entry: post, cacheHint } = await getEmDashEntry("posts", slug);
+if (!post) return Astro.rewrite("/404");
+
+// 改ページ（/22396/2/ のように2ページ目以降は [slug]/[page].astro から ?page=2 で来る）
+const pages = splitPages(post.data.content as any[]);
+const pageNo = Math.max(1, Number(Astro.url.searchParams.get("page")) || 1);
+if (pageNo > pages.length) return Astro.rewrite("/404");
+const pageUrl = (n: number) => (n <= 1 ? `/${slug}/` : `/${slug}/${n}/`);
+// 改ページのない記事は、これまでどおり本文をそのまま渡す（ログイン中の直接編集が使える）
+const bodyValue = pages.length > 1 ? pages[pageNo - 1] : post.data.content;
+if (!isPreview && Astro.cache?.enabled) Astro.cache.set(cacheHint);
+
+function imageUrl(img: any): string | undefined {
+	if (!img?.src) return undefined;
+	return img.src.startsWith("http") ? img.src : `${Astro.url.origin}${img.src}`;
+}
+const seo = getSeoMeta(post, {
+	siteTitle: SITE.title,
+	siteUrl: Astro.url.origin,
+	path: pageUrl(pageNo),
+	defaultOgImage: imageUrl(post.data.featured_image),
+});
+
+const cats = post.data.terms?.category ?? [];
+const mainCat = cats[0];
+const catInfo = await getCategories();
+const categoryUrl = catInfo.url;
+const crumbs = mainCat ? catInfo.trail(mainCat.slug).map((n) => ({ label: n.label, href: catInfo.url(n.slug) })) : [];
+
+const publishedAt = post.data.publishedAt ?? null;
+const iso = publishedAt?.toISOString();
+const [{ entries: older }, { entries: newer }] = iso
+	? await Promise.all([
+			getEmDashCollection("posts", { where: { published_at: { lt: iso } }, orderBy: { published_at: "desc" }, limit: 1 }),
+			getEmDashCollection("posts", { where: { published_at: { gt: iso } }, orderBy: { published_at: "asc" }, limit: 1 }),
+		])
+	: [{ entries: [] }, { entries: [] }];
+const prev = older[0];
+const next = newer[0];
+---
+
+<Layout
+	title={pageNo > 1 ? `${post.data.title}（${pageNo}ページ目）` : post.data.title}
+	description={seo.description}
+	image={seo.ogImage}
+	canonical={seo.canonical}
+	robots={seo.robots}
+	type="article"
+	publishedTime={iso ?? null}
+	modifiedTime={post.data.updatedAt?.toISOString() ?? null}
+	content={{ collection: "posts", id: post.data.id, slug }}
+>
+	<Breadcrumb items={[...crumbs, { label: post.data.title }]} />
+
+	<article class="d-card d-article">
+		<header>
+			{mainCat && <a href={categoryUrl(mainCat.slug)} class="d-article__cat">{mainCat.label}</a>}
+			<h1 class="d-article__title" {...post.edit.title}>{post.data.title}</h1>
+			{iso && <time class="d-article__date" datetime={iso}>{formatJaDate(publishedAt)}</time>}
+		</header>
+
+		<div class="d-content" {...post.edit.content}>
+			<PortableText value={bodyValue} components={ptComponents} />
+		</div>
+		{
+			pages.length > 1 && (
+				<nav class="d-pagelinks" aria-label="記事のページ">
+					{pageNo > 1 && <a href={pageUrl(pageNo - 1)} class="d-pagelinks__prev">« 前のページ</a>}
+					{pages.map((_, i) =>
+						i + 1 === pageNo ? <span class="d-pagelinks__num is-current">{i + 1}</span> : <a href={pageUrl(i + 1)} class="d-pagelinks__num">{i + 1}</a>,
+					)}
+					{pageNo < pages.length && <a href={pageUrl(pageNo + 1)} class="d-pagelinks__next">次のページ »</a>}
+				</nav>
+			)
+		}
+	</article>
+
+	{
+		(prev || next) && (
+			<nav class="d-prevnext" aria-label="前後の記事">
+				{prev && (
+					<a href={`/${prev.id}/`} class="prev">
+						<small>« 前の記事</small>
+						{prev.data.title}
+					</a>
+				)}
+				{next && (
+					<a href={`/${next.id}/`} class="next">
+						<small>次の記事 »</small>
+						{next.data.title}
+					</a>
+				)}
+			</nav>
+		)
+	}
+</Layout>

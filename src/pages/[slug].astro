@@ -1,0 +1,16 @@
+---
+// WordPressと同じURLで表示する: /22396/ は記事、/visa/ や日本語スラッグは固定ページ
+import { getEmDashEntry, decodeSlug } from "emdash";
+import { slugCandidates } from "../diver/site";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.rewrite("/404");
+
+for (const s of slugCandidates(slug)) {
+	const { entry: post } = await getEmDashEntry("posts", s);
+	if (post) return Astro.rewrite(`/posts/${encodeURIComponent(s)}`);
+	const { entry: page } = await getEmDashEntry("pages", s);
+	if (page) return Astro.rewrite(`/pages/${encodeURIComponent(s)}`);
+}
+return Astro.rewrite("/404");
+---

@@ -1,0 +1,47 @@
+---
+import { ptComponents } from "../../diver/pt";
+import { getEmDashEntry, getSeoMeta, decodeSlug } from "emdash";
+import { PortableText } from "emdash/ui";
+import Layout from "../../diver/Layout.astro";
+import Breadcrumb from "../../diver/Breadcrumb.astro";
+import { SITE, slugCandidates, slugUrl } from "../../diver/site";
+
+const slug = decodeSlug(Astro.params.slug);
+if (!slug) return Astro.rewrite("/404");
+
+// 下書きのプレビュー（?_preview=…）は転送せず、キャッシュもしない
+const isPreview = Astro.url.searchParams.has("_preview");
+if (isPreview && Astro.cache?.enabled) Astro.cache.set(false);
+
+let page: any = null;
+let cacheHint: any;
+let stored = slug;
+for (const s of slugCandidates(slug)) {
+	const r = await getEmDashEntry("pages", s);
+	if (r.entry) { page = r.entry; cacheHint = r.cacheHint; stored = s; break; }
+}
+if (!page) return Astro.rewrite("/404");
+
+if (!isPreview && Astro.originPathname.startsWith("/pages/")) {
+	return Astro.redirect(slugUrl(stored), 301);
+}
+if (!isPreview && Astro.cache?.enabled) Astro.cache.set(cacheHint);
+
+const seo = getSeoMeta(page, { siteTitle: SITE.title, siteUrl: Astro.url.origin, path: slugUrl(stored) });
+---
+
+<Layout
+	title={page.data.title}
+	description={seo.description}
+	canonical={seo.canonical}
+	robots={seo.robots}
+	content={{ collection: "pages", id: page.data.id, slug }}
+>
+	<Breadcrumb items={[{ label: page.data.title }]} />
+	<article class="d-card d-page">
+		<h1 class="d-article__title" {...page.edit.title}>{page.data.title}</h1>
+		<div class="d-content" {...page.edit.content}>
+			<PortableText value={page.data.content} components={ptComponents} />
+		</div>
+	</article>
+</Layout>

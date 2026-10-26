@@ -1,0 +1,13 @@
+---
+interface Props {
+	items: Array<{ label: string; href?: string }>;
+}
+const { items } = Astro.props;
+---
+
+<div class="d-crumb">
+	<ol>
+		<li><a href="/">ホーム</a></li>
+		{items.map((i) => <li>{i.href ? <a href={i.href}>{i.label}</a> : <span>{i.label}</span>}</li>)}
+	</ol>
+</div>

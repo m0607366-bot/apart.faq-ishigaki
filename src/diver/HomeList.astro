@@ -1,0 +1,26 @@
+---
+// トップページの記事一覧（WordPressと同じ：先頭に固定表示の記事 → 新着記事、/page/2/ でページ送り）
+import { getEmDashCollection, getEmDashEntry } from "emdash";
+import PostItem from "./PostItem.astro";
+import Pager from "./Pager.astro";
+import { SITE, PER_PAGE } from "./site";
+
+interface Props {
+	page: number;
+}
+const { page } = Astro.props;
+const stickyId = (SITE as any).stickyPostId as string | undefined;
+
+const [{ entries, cacheHint }, sticky] = await Promise.all([
+	getEmDashCollection("posts", { orderBy: { published_at: "desc" }, limit: PER_PAGE + 2, offset: (page - 1) * PER_PAGE }),
+	page === 1 && stickyId ? getEmDashEntry("posts", stickyId) : Promise.resolve({ entry: null }),
+]);
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+const list = entries.filter((p: any) => p.id !== stickyId).slice(0, PER_PAGE);
+const hasNext = entries.length > PER_PAGE;
+---
+
+{sticky?.entry && <div class="d-list d-sticky"><PostItem post={sticky.entry} /></div>}
+<div class="d-section-head"><h2>新着記事</h2></div>
+<div class="d-list">{list.map((post: any) => <PostItem post={post} />)}</div>
+<Pager base="/" page={page} hasNext={hasNext} />

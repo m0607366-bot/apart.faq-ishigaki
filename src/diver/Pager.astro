@@ -1,0 +1,20 @@
+---
+// WordPressと同じ /page/2/ 形式のページ送り
+interface Props {
+	base: string; // 例: /category/blog/
+	page: number;
+	hasNext: boolean;
+}
+const { base, page, hasNext } = Astro.props;
+const url = (n: number) => (n <= 1 ? base : `${base}page/${n}/`);
+---
+
+{
+	(page > 1 || hasNext) && (
+		<nav class="d-pager" aria-label="ページ送り">
+			{page > 1 && <a href={url(page - 1)} class="d-pager__prev">« 前へ</a>}
+			<span class="d-pager__current">{page}</span>
+			{hasNext && <a href={url(page + 1)} class="d-pager__next">次へ »</a>}
+		</nav>
+	)
+}

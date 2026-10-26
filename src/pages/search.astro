@@ -1,0 +1,48 @@
+---
+export const prerender = false;
+import { search } from "emdash";
+import Layout from "../diver/Layout.astro";
+import Breadcrumb from "../diver/Breadcrumb.astro";
+
+const query = Astro.url.searchParams.get("q")?.trim() || "";
+const { items: results } = query
+	? await search(query, { collections: ["posts", "pages"], limit: 30 })
+	: { items: [] as any[] };
+---
+
+<Layout title={query ? `「${query}」の検索結果` : "検索"} robots="noindex">
+	<Breadcrumb items={[{ label: query ? `「${query}」の検索結果` : "検索" }]} />
+	<div class="d-archive-head">
+		<h1>{query ? `「${query}」の検索結果` : "検索"}</h1>
+		<form action="/search" method="get" class="d-search" style="margin-top:10px">
+			<input type="search" name="q" value={query} aria-label="検索" />
+			<button type="submit">検索</button>
+		</form>
+	</div>
+	{
+		query && (results.length > 0 ? (
+			<div class="d-card d-page">
+				<ol class="d-results">
+					{results.map((r: any) => (
+						<li>
+							<a href={`/${r.slug ?? r.id}/`}>{r.title ?? "(無題)"}</a>
+							{r.snippet && <p set:html={r.snippet} />}
+						</li>
+					))}
+				</ol>
+			</div>
+		) : (
+			<div class="d-card d-page">
+				「{query}」に一致する記事は見つかりませんでした。
+				{[...query.replace(/\s/g, "")].length < 3 && <p>※ 日本語の検索は3文字以上で行ってください（例：「ビザ」→「ビザ延長」）。</p>}
+			</div>
+		))
+	}
+</Layout>
+
+<style>
+	.d-results { list-style: none; display: grid; gap: 16px; }
+	.d-results a { font-weight: 700; font-size: 1.05rem; }
+	.d-results p { margin: 4px 0 0; font-size: 0.85rem; color: #666; }
+	.d-results :global(mark) { background: #fff3a0; }
+</style>

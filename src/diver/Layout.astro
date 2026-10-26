@@ -1,0 +1,153 @@
+---
+// Diverテーマ風の共通レイアウト（ヘッダー・メニュー・サイドバー・フッター）
+import { EmDashHead, EmDashBodyStart, EmDashBodyEnd } from "emdash/ui";
+import { createPublicPageContext } from "emdash/page";
+import { SITE, FOOTER_MENU } from "./site";
+import { getSiteMenu } from "./menu";
+import Sidebar from "./Sidebar.astro";
+import Lightbox from "./Lightbox.astro";
+import "./diver.css";
+
+interface Props {
+	title: string;
+	description?: string | null;
+	image?: string | null;
+	canonical?: string | null;
+	robots?: string | null;
+	type?: "website" | "article";
+	publishedTime?: string | null;
+	modifiedTime?: string | null;
+	content?: { collection: string; id: string; slug?: string | null };
+	sidebar?: boolean;
+}
+
+const {
+	title,
+	description,
+	image,
+	canonical,
+	robots,
+	type = "website",
+	publishedTime,
+	modifiedTime,
+	content,
+	sidebar = (SITE as any).sidebar ?? true,
+} = Astro.props;
+
+// WordPressと同じ「記事名 - サイト名」形式
+const fullTitle = title === SITE.title ? (SITE.tagline ? `${SITE.title} - ${SITE.tagline}` : SITE.title) : `${title} - ${SITE.title}`;
+
+const pageCtx = createPublicPageContext({
+	Astro,
+	kind: content ? "content" : "custom",
+	pageType: type,
+	title: fullTitle,
+	pageTitle: title,
+	description: description ?? (SITE.tagline || undefined),
+	canonical,
+	image,
+	content,
+	seo: { ogImage: image, robots: robots ?? ((SITE as any).noindex ? "noindex, nofollow" : undefined) },
+	articleMeta: { publishedTime, modifiedTime },
+	siteName: SITE.title,
+});
+
+const isLoggedIn = !!Astro.locals.user;
+const isExternal = (href: string) => /^https?:\/\//.test(href);
+// 上部メニューは管理画面の「メニュー」から
+const MENU = await getSiteMenu();
+---
+
+<!doctype html>
+<html lang="ja">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>{fullTitle}</title>
+		<EmDashHead page={pageCtx} />
+		<link rel="alternate" type="application/rss+xml" title={`${SITE.title} RSS`} href="/rss.xml" />
+		{/* Google AdSense（自動広告）と Googleタグ：WordPressのSite Kitと同じID */}
+		{SITE.adsenseClient && <script async src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${SITE.adsenseClient}`} crossorigin="anonymous"></script>}
+		{SITE.googleTag && <script async src={`https://www.googletagmanager.com/gtag/js?id=${SITE.googleTag}`}></script>}
+		{/* Cloudflare Web Analytics */}
+		{(SITE as any).cfBeaconToken && (
+			<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon={JSON.stringify({ token: (SITE as any).cfBeaconToken })}></script>
+		)}
+		{SITE.googleTag && (
+			<script is:inline define:vars={{ tag: SITE.googleTag }}>
+				window.dataLayer = window.dataLayer || [];
+				function gtag() { dataLayer.push(arguments); }
+				gtag("js", new Date());
+				gtag("config", tag);
+			</script>
+		)}
+	</head>
+	<body>
+		<EmDashBodyStart page={pageCtx} />
+		<header class="d-header">
+			<div class="d-header__inner">
+				<label class="d-drawer-btn" for="d-drawer" aria-label="メニュー"><span></span></label>
+				<a href="/" class="d-logo">{SITE.title}</a>
+				{isLoggedIn && (
+					<span class="d-admin">
+						<a href="/category-editor/">カテゴリー並べ替え</a>
+						<a href="/_emdash/admin">管理画面</a>
+					</span>
+				)}
+			</div>
+		</header>
+
+		<input type="checkbox" id="d-drawer" class="d-drawer-toggle" hidden />
+		<nav class="d-nav" aria-label="メインメニュー">
+			<ul class="d-nav__list">
+				{
+					MENU.map((item) => (
+						<li class:list={["d-nav__item", item.children && "has-children"]}>
+							<a
+								href={item.href}
+								{...(isExternal(item.href) ? { target: "_blank", rel: "noopener" } : {})}
+							>
+								{item.label}
+							</a>
+							{item.children && (
+								<ul class="d-nav__sub">
+									{item.children.map((c) => (
+										<li class:list={[c.sub && "is-sub"]}>
+											<a href={c.href} {...(isExternal(c.href) ? { target: "_blank", rel: "noopener" } : {})}>{c.label}</a>
+										</li>
+									))}
+								</ul>
+							)}
+						</li>
+					))
+				}
+			</ul>
+		</nav>
+		<label class="d-drawer-overlay" for="d-drawer" aria-hidden="true"></label>
+
+		<div class:list={["d-container", !sidebar && "no-sidebar"]}>
+			<main id="main" class="d-main">
+				<slot />
+			</main>
+			{
+				sidebar && (
+					<aside class="d-sidebar">
+						<Sidebar />
+					</aside>
+				)
+			}
+		</div>
+
+		<footer class="d-footer">
+			<ul class="d-footer__menu">
+				{(FOOTER_MENU ?? MENU.filter((m) => !m.children)).map((m) => (
+					<li><a href={m.href}>{m.label}</a></li>
+				))}
+			</ul>
+			<p class="d-footer__copy">{SITE.copyright}</p>
+		</footer>
+		<a href="#" class="d-totop" aria-label="ページの先頭へ">▲</a>
+		<Lightbox />
+		<EmDashBodyEnd page={pageCtx} />
+	</body>
+</html>

@@ -1,0 +1,31 @@
+---
+// WordPressの「ブログカード」風のリンク表示（サムネイル・タイトル・説明3行）
+import { getLinkMeta } from "./linkmeta";
+
+interface Props {
+	url: string;
+	// 相手のサイトから題名が取れなかったときに使う題名（WordPressのカードの説明文など）
+	fallbackTitle?: string;
+}
+const meta = await getLinkMeta(Astro.props.url);
+if (Astro.props.fallbackTitle && (!meta.title || meta.title === meta.url || meta.title === Astro.props.url)) {
+	meta.title = Astro.props.fallbackTitle;
+}
+let external = true;
+try {
+	external = !["apart.faq-ishigaki.com", "apart-faq-ishigaki-com.delta-a.workers.dev"].includes(new URL(meta.url).hostname);
+} catch {}
+---
+
+<a href={meta.url} class="d-linkcard" {...(external ? { target: "_blank", rel: "noopener" } : {})}>
+	{meta.image && (
+		<span class="d-linkcard__thumb">
+			<img src={meta.image} alt="" loading="lazy" decoding="async" />
+		</span>
+	)}
+	<span class="d-linkcard__body">
+		<span class="d-linkcard__title">{meta.title}</span>
+		{meta.description && <span class="d-linkcard__desc">{meta.description}</span>}
+		<span class="d-linkcard__site">{meta.site}</span>
+	</span>
+</a>

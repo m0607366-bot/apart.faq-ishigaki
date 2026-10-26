@@ -1,0 +1,12 @@
+---
+import Layout from "../diver/Layout.astro";
+Astro.response.status = 404;
+---
+
+<Layout title="ページが見つかりません" robots="noindex">
+	<div class="d-card d-page">
+		<h1 class="d-article__title">ページが見つかりません</h1>
+		<p>お探しのページは移動または削除された可能性があります。</p>
+		<p><a href="/">トップページへ戻る</a></p>
+	</div>
+</Layout>

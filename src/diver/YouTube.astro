@@ -1,0 +1,21 @@
+---
+// 本文に貼ったYouTubeのURLを、WordPressと同じように動画プレーヤーで表示する
+// 広告ブロックなどで動画が読み込めない人には、サムネイル画像（クリックでYouTubeへ）が見える
+const { id, start } = Astro.props as { id: string; start?: number };
+const src = `https://www.youtube.com/embed/${id}${start ? `?start=${start}` : ""}`;
+const watch = `https://www.youtube.com/watch?v=${id}${start ? `&t=${start}s` : ""}`;
+---
+
+<div class="d-youtube">
+	<a class="d-youtube__fallback" href={watch} target="_blank" rel="noopener">
+		<img src={`https://i.ytimg.com/vi/${id}/hqdefault.jpg`} alt="YouTubeで見る" loading="lazy" decoding="async" />
+		<span class="d-youtube__play" aria-hidden="true">▶</span>
+	</a>
+	<iframe
+		src={src}
+		title="YouTube video"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerpolicy="strict-origin-when-cross-origin"
+		allowfullscreen></iframe>
+</div>

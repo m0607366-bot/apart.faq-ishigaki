@@ -1,0 +1,16 @@
+---
+// 改ページした記事の2ページ目以降（WordPressと同じ /22396/2/ の形）
+import { getEmDashEntry, decodeSlug } from "emdash";
+import { slugCandidates } from "../../diver/site";
+
+const slug = decodeSlug(Astro.params.slug);
+const page = Astro.params.page ?? "";
+if (!slug || !/^\d+$/.test(page)) return Astro.rewrite("/404");
+if (Number(page) <= 1) return Astro.redirect(`/${slug}/`, 301);
+
+for (const s of slugCandidates(slug)) {
+	const { entry } = await getEmDashEntry("posts", s);
+	if (entry) return Astro.rewrite(`/posts/${encodeURIComponent(s)}?page=${Number(page)}`);
+}
+return Astro.rewrite("/404");
+---

@@ -1,0 +1,31 @@
+---
+// 記事一覧の1件（Diverの「サムネイル左・タイトル・日付・抜粋」）
+import { Image } from "emdash/ui";
+import { excerptOf, formatJaDate, isNew } from "./site";
+import { getCategories } from "./categories";
+
+interface Props {
+	post: any;
+}
+const { post } = Astro.props;
+const cat = post.data.terms?.category?.[0];
+const href = `/${post.id}/`;
+const cats = await getCategories();
+const categoryUrl = cats.url;
+---
+
+<article class="d-item">
+	<a href={href} class="d-item__thumb" tabindex="-1" aria-hidden="true">
+		{isNew(post.data.publishedAt) && <span class="d-new">NEW!</span>}
+		{post.data.featured_image ? <Image image={post.data.featured_image} sizes="(max-width: 600px) 40vw, 240px" /> : <span class="noimg" />}
+		{cat && <span class="d-item__cat">{cat.label}</span>}
+	</a>
+	<div class="d-item__body">
+		<h3 class="d-item__title"><a href={href}>{post.data.title}</a></h3>
+		<p class="d-item__meta">
+			<time datetime={post.data.publishedAt?.toISOString()}>{formatJaDate(post.data.publishedAt)}</time>
+			{cat && <a href={categoryUrl(cat.slug)} class="d-item__catlink">{cat.label}</a>}
+		</p>
+		<p class="d-item__excerpt">{excerptOf(post.data.content)}</p>
+	</div>
+</article>

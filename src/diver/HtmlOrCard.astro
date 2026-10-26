@@ -1,0 +1,49 @@
+---
+// WordPressの「埋め込み」（wp-embed・YouTube など）がHTMLのまま取り込まれたものを、
+// URLを取り出してリンクカード（動画はプレーヤー）に置き換える。それ以外のHTMLはそのまま表示。
+import { HtmlBlock } from "emdash/ui";
+import LinkCard from "./LinkCard.astro";
+import YouTube from "./YouTube.astro";
+import { youtubeId } from "./youtube";
+
+const { node } = Astro.props as any;
+const html: string = typeof node?.html === "string" ? node.html : "";
+
+type Part = { html: string } | { url: string; caption?: string };
+const parts: Part[] = [];
+if (!node?.isolated && /wp-block-embed/.test(html)) {
+	const re = /<figure\b[^>]*class="[^"]*wp-block-embed[^"]*"[^>]*>([\s\S]*?)<\/figure>/g;
+	let last = 0;
+	for (const m of html.matchAll(re)) {
+		const inner = m[1];
+		const wrap = inner.match(/wp-block-embed__wrapper[^>]*>([\s\S]*?)<\/div>/)?.[1] ?? inner;
+		const url =
+			wrap.replace(/<[^>]+>/g, " ").match(/https?:\/\/[^\s<"]+/)?.[0] ??
+			wrap.match(/(?:href|src)="(https?:\/\/[^"]+)"/)?.[1];
+		if (!url) continue;
+		if (m.index! > last) parts.push({ html: html.slice(last, m.index) });
+		const caption = inner.match(/<figcaption[^>]*>([\s\S]*?)<\/figcaption>/)?.[1]?.replace(/<[^>]+>/g, "").trim();
+		parts.push({ url: url.replace(/&amp;/g, "&"), caption });
+		last = m.index! + m[0].length;
+	}
+	if (parts.length && last < html.length) parts.push({ html: html.slice(last) });
+}
+const sub = (h: string) => ({ ...node, html: h });
+---
+
+{
+	parts.length === 0 ? (
+		<HtmlBlock {...Astro.props} />
+	) : (
+		parts.map((p) =>
+			"url" in p ? (
+				<>
+					{youtubeId(p.url) ? <YouTube {...youtubeId(p.url)!} /> : <LinkCard url={p.url} fallbackTitle={p.caption} />}
+					{p.caption ? <p class="d-embed-caption">{p.caption}</p> : null}
+				</>
+			) : p.html.trim() ? (
+				<HtmlBlock node={sub(p.html)} />
+			) : null,
+		)
+	)
+}

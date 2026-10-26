@@ -1,0 +1,39 @@
+---
+// /category/blog/  /category/blog/trip/2026-06-09/  /category/blog/page/2/ に対応
+import { getEmDashCollection } from "emdash";
+import Layout from "../../diver/Layout.astro";
+import Breadcrumb from "../../diver/Breadcrumb.astro";
+import PostItem from "../../diver/PostItem.astro";
+import Pager from "../../diver/Pager.astro";
+import { PER_PAGE, splitPaging } from "../../diver/site";
+import { getCategories } from "../../diver/categories";
+
+const segments = (Astro.params.path ?? "").split("/").filter(Boolean).map(decodeURIComponent);
+const { rest, page } = splitPaging(segments);
+const slug = rest[rest.length - 1];
+
+const catInfo = await getCategories();
+const term = slug ? catInfo.bySlug.get(slug) : undefined;
+if (!term) return Astro.rewrite("/404");
+
+const { entries } = await getEmDashCollection("posts", {
+	where: { category: catInfo.descendants(term.slug) },
+	orderBy: { published_at: "desc" },
+	limit: PER_PAGE + 1,
+	offset: (page - 1) * PER_PAGE,
+});
+const posts = entries.slice(0, PER_PAGE);
+const hasNext = entries.length > PER_PAGE;
+const base = catInfo.url(term.slug);
+const crumbs = catInfo.trail(term.slug).map((n) => ({ label: n.label, href: catInfo.url(n.slug) }));
+---
+
+<Layout title={page > 1 ? `${term.label} - ${page}ページ` : term.label} canonical={`${Astro.url.origin}${page > 1 ? `${base}page/${page}/` : base}`}>
+	<Breadcrumb items={crumbs} />
+	<div class="d-archive-head">
+		<h1>{term.label}</h1>
+		{term.description && <p>{term.description}</p>}
+	</div>
+	{posts.length > 0 ? <div class="d-list">{posts.map((post) => <PostItem post={post} />)}</div> : <div class="d-card d-page">記事はまだありません。</div>}
+	<Pager base={base} page={page} hasNext={hasNext} />
+</Layout>

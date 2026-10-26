@@ -1,0 +1,23 @@
+---
+// 本文の段落がURLだけの場合は、WordPressと同じようにリンクカードにする
+import { Block } from "emdash/ui";
+import LinkCard from "./LinkCard.astro";
+import YouTube from "./YouTube.astro";
+import { youtubeId } from "./youtube";
+import { isPageBreak } from "./site";
+
+const { node } = Astro.props as any;
+// リンク付きのURLは入れ子（リンク → 文字）になっているので、中の文字まで全部たどる
+const textOf = (n: any): string =>
+	typeof n?.text === "string" ? n.text : Array.isArray(n?.children) ? n.children.map(textOf).join("") : "";
+let cardUrl: string | null = null;
+if ((node?.style ?? "normal") === "normal" && !node?.listItem && Array.isArray(node?.children)) {
+	const text = node.children.map(textOf).join("").replace(/[\u200B\uFEFF]/g, "").trim();
+	if (/^https?:\/\/\S+$/.test(text)) cardUrl = text;
+}
+const yt = cardUrl ? youtubeId(cardUrl) : null;
+// 改ページの印（<!--nextpage-->）は本文には表示しない
+const hidden = isPageBreak(node);
+---
+
+{hidden ? null : yt ? <YouTube {...yt} /> : cardUrl ? <LinkCard url={cardUrl} /> : <Block {...Astro.props}><slot /></Block>}

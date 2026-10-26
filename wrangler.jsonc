@@ -1,0 +1,34 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "apart-faq-ishigaki-com",
+	"main": "./src/worker.ts",
+	// 本番ドメイン（Cloudflareのカスタムドメイン）は切り替えのときに下の1行のコメント（//）を外す。仮のアドレス（workers.dev）も残す（管理画面のログイン移行に使う）
+	"workers_dev": true,
+	// "routes": [{ "pattern": "apart.faq-ishigaki.com", "custom_domain": true }],
+	"compatibility_date": "2026-02-24",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "apart-faq-ishigaki-com",
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "MEDIA",
+			"bucket_name": "apart-faq-ishigaki-com-media",
+		},
+	],
+	// Sandboxed plugins require Worker Loader, available on Workers paid plans. Uncomment to enable:
+	// "worker_loaders": [{ "binding": "LOADER" }],
+	// General maintenance cron trigger
+	"triggers": {
+		"crons": [
+			"* * * * *"
+		],
+	},
+	// メール送信（ログイン用リンク）。送信元ドメイン mail.delta-a.net は Cloudflare の Email Sending に登録済み
+	"send_email": [{ "name": "EMAIL" }],
+}

@@ -1,0 +1,38 @@
+---
+// 月別・年別アーカイブ：/date/2026/10/  /date/2026/  /date/2026/10/page/2/
+import { getEmDashCollection } from "emdash";
+import Layout from "../../diver/Layout.astro";
+import Breadcrumb from "../../diver/Breadcrumb.astro";
+import PostItem from "../../diver/PostItem.astro";
+import Pager from "../../diver/Pager.astro";
+import { PER_PAGE, splitPaging } from "../../diver/site";
+
+const segments = (Astro.params.path ?? "").split("/").filter(Boolean);
+const { rest, page } = splitPaging(segments);
+const [ys, ms] = rest;
+const y = Number(ys);
+const m = ms ? Number(ms) : 0;
+if (!/^\d{4}$/.test(ys ?? "") || (ms && !(m >= 1 && m <= 12)) || rest.length > 2) return Astro.rewrite("/404");
+
+// WordPressのタイムゾーン（日本時間）で月の範囲を決める
+const pad = (n: number) => String(n).padStart(2, "0");
+const from = m ? `${y}-${pad(m)}-01T00:00:00+09:00` : `${y}-01-01T00:00:00+09:00`;
+const to = m ? (m === 12 ? `${y + 1}-01-01T00:00:00+09:00` : `${y}-${pad(m + 1)}-01T00:00:00+09:00`) : `${y + 1}-01-01T00:00:00+09:00`;
+
+const { entries } = await getEmDashCollection("posts", {
+	where: { published_at: { gte: new Date(from).toISOString(), lt: new Date(to).toISOString() } },
+	orderBy: { published_at: "desc" },
+	limit: PER_PAGE + 1,
+	offset: (page - 1) * PER_PAGE,
+});
+const posts = entries.slice(0, PER_PAGE);
+const label = m ? `${y}年${m}月` : `${y}年`;
+const base = m ? `/date/${y}/${pad(m)}/` : `/date/${y}/`;
+---
+
+<Layout title={label} canonical={`${Astro.url.origin}${base}`}>
+	<Breadcrumb items={[{ label }]} />
+	<div class="d-archive-head"><h1>{label}の記事</h1></div>
+	{posts.length > 0 ? <div class="d-list">{posts.map((post) => <PostItem post={post} />)}</div> : <div class="d-card d-page">この期間の記事はありません。</div>}
+	<Pager base={base} page={page} hasNext={entries.length > PER_PAGE} />
+</Layout>

@@ -1,0 +1,14 @@
+---
+// 動画（YouTube・Vimeo・自前の動画/音声）は従来の埋め込み、それ以外のURLはリンクカードで表示
+import { Embed } from "emdash/ui";
+import LinkCard from "./LinkCard.astro";
+
+const { node } = Astro.props as { node: { url?: string; provider?: string } };
+const url = node?.url ?? "";
+const isMedia =
+	node?.provider === "video" ||
+	node?.provider === "audio" ||
+	/(youtube\.com|youtu\.be|vimeo\.com)/i.test(url);
+---
+
+{isMedia ? <Embed {...Astro.props} /> : url ? <LinkCard url={url} /> : null}

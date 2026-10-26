@@ -1,0 +1,14 @@
+---
+// トップページ：WordPressと同じく「先頭に固定表示」の記事と新着記事の一覧
+import Layout from "../diver/Layout.astro";
+import HomeList from "../diver/HomeList.astro";
+import { SITE } from "../diver/site";
+
+// WordPress形式の検索URL（/?s=…）を新しい検索ページへ
+const wpSearch = Astro.url.searchParams.get("s");
+if (wpSearch !== null) return Astro.redirect(`/search?q=${encodeURIComponent(wpSearch)}`, 301);
+---
+
+<Layout title={SITE.title} canonical={`${Astro.url.origin}/`}>
+	<HomeList page={1} />
+</Layout>

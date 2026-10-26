@@ -1,0 +1,189 @@
+---
+// カテゴリーをドラッグ＆ドロップで並べ替え・親子付け替えするページ（ログイン中の管理者だけ）
+import Layout from "../diver/Layout.astro";
+
+export const prerender = false;
+
+const user = Astro.locals.user as { role?: number } | undefined;
+if (!user) return Astro.redirect(`/_emdash/admin/login?redirect=${encodeURIComponent("/category-editor/")}`);
+---
+
+<Layout title="カテゴリーの並べ替え" robots="noindex, nofollow" sidebar={false}>
+	<div class="d-card d-page ce">
+		<h1 class="d-article__title">カテゴリーの並べ替え</h1>
+		<p class="ce-help">
+			カテゴリーを<strong>ドラッグ＆ドロップ</strong>で動かせます。ほかのカテゴリーの<strong>右寄りの位置</strong>に落とすと、その子カテゴリーになります。
+			並べ終わったら「保存」を押してください。サイトのサイドバーとダッシュボードの「Categories」に反映されます。
+		</p>
+		<div class="ce-bar">
+			<button type="button" id="ce-save" class="ce-btn ce-btn--primary" disabled>保存</button>
+			<button type="button" id="ce-reset" class="ce-btn" disabled>元に戻す</button>
+			<button type="button" id="ce-expand" class="ce-btn">すべて開く</button>
+			<button type="button" id="ce-collapse" class="ce-btn">すべて閉じる</button>
+			<span id="ce-status" class="ce-status">読み込み中…</span>
+		</div>
+		<ul id="ce-root" class="ce-list ce-list--root"></ul>
+		<p class="ce-foot"><a href="/_emdash/admin/content/taxonomies/category">ダッシュボードの Categories を開く</a>（名前の変更や新しいカテゴリーの追加はこちら）</p>
+	</div>
+</Layout>
+
+<script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<script is:inline>
+	(function () {
+		const H = { "X-EmDash-Request": "1", "Content-Type": "application/json" };
+		const root = document.getElementById("ce-root");
+		const status = document.getElementById("ce-status");
+		const saveBtn = document.getElementById("ce-save");
+		const resetBtn = document.getElementById("ce-reset");
+		let original = new Map(); // id -> { parent, index, slug }
+		let sortables = [];
+
+		const setStatus = (t, cls) => { status.textContent = t; status.className = "ce-status " + (cls || ""); };
+		const markDirty = () => { saveBtn.disabled = false; resetBtn.disabled = false; setStatus("未保存の変更があります", "is-dirty"); };
+
+		function render(terms) {
+			root.innerHTML = "";
+			sortables.forEach((s) => s.destroy());
+			sortables = [];
+			original = new Map();
+			const build = (list, ul, parentId) => {
+				list.forEach((t, i) => {
+					const id = t.translationGroup || t.id;
+					original.set(id, { parent: parentId, index: i, slug: t.slug });
+					const li = document.createElement("li");
+					li.className = "ce-item";
+					li.dataset.id = id;
+					li.dataset.slug = t.slug;
+					const row = document.createElement("div");
+					row.className = "ce-row";
+					row.innerHTML =
+						'<span class="ce-handle" title="ドラッグして移動">⠿</span>' +
+						'<button type="button" class="ce-toggle" aria-label="開閉"></button>' +
+						'<span class="ce-label"></span><span class="ce-count"></span>';
+					row.querySelector(".ce-label").textContent = t.label;
+					row.querySelector(".ce-count").textContent = t.count != null ? "(" + t.count + ")" : "";
+					const child = document.createElement("ul");
+					child.className = "ce-list";
+					li.appendChild(row);
+					li.appendChild(child);
+					ul.appendChild(li);
+					if (Array.isArray(t.children) && t.children.length) build(t.children, child, id);
+				});
+			};
+			build(terms, root, null);
+			document.querySelectorAll(".ce-list").forEach((ul) => {
+				sortables.push(
+					new Sortable(ul, {
+						group: "cats",
+						handle: ".ce-row",
+						animation: 150,
+						forceFallback: true,
+						fallbackTolerance: 4,
+						fallbackOnBody: true,
+						swapThreshold: 0.65,
+						invertSwap: true,
+						emptyInsertThreshold: 12,
+						onEnd: () => { refreshToggles(); markDirty(); },
+					}),
+				);
+			});
+			refreshToggles();
+		}
+
+		function refreshToggles() {
+			document.querySelectorAll(".ce-item").forEach((li) => {
+				const has = li.querySelector(":scope > .ce-list > .ce-item");
+				li.classList.toggle("has-children", !!has);
+			});
+		}
+
+		root.addEventListener("click", (e) => {
+			const btn = e.target.closest(".ce-toggle");
+			if (btn) btn.closest(".ce-item").classList.toggle("is-collapsed");
+		});
+		document.getElementById("ce-expand").onclick = () => document.querySelectorAll(".ce-item").forEach((li) => li.classList.remove("is-collapsed"));
+		document.getElementById("ce-collapse").onclick = () => document.querySelectorAll(".ce-item.has-children").forEach((li) => li.classList.add("is-collapsed"));
+
+		async function load() {
+			setStatus("読み込み中…");
+			const r = await fetch("/_emdash/api/taxonomies/category/terms?includeCounts=true", { headers: H, credentials: "same-origin" });
+			if (!r.ok) { setStatus("読み込みに失敗しました（" + r.status + "）。ログインし直してください。", "is-error"); return; }
+			const j = await r.json();
+			const terms = (j.data && (j.data.items || j.data.terms)) || j.data || [];
+			render(terms);
+			saveBtn.disabled = true; resetBtn.disabled = true;
+			setStatus("ドラッグして並べ替えてください");
+		}
+
+		async function save() {
+			saveBtn.disabled = true; resetBtn.disabled = true;
+			setStatus("保存しています…");
+			try {
+				// 1. 親が変わったカテゴリーの親を付け替える（上の階層から順に）
+				const items = [...document.querySelectorAll(".ce-item")];
+				for (const li of items) {
+					const parentLi = li.parentElement.closest(".ce-item");
+					const parent = parentLi ? parentLi.dataset.id : null;
+					const o = original.get(li.dataset.id);
+					if (!o || o.parent !== parent) {
+						const r = await fetch("/_emdash/api/taxonomies/category/terms/" + encodeURIComponent(li.dataset.slug), {
+							method: "PUT", headers: H, credentials: "same-origin", body: JSON.stringify({ parentId: parent }),
+						});
+						if (!r.ok) throw new Error("「" + li.querySelector(".ce-label").textContent + "」の移動に失敗（" + r.status + "）");
+					}
+				}
+				// 2. 各階層の並び順を保存する
+				const groups = [root, ...document.querySelectorAll(".ce-item > .ce-list")];
+				for (const ul of groups) {
+					const ids = [...ul.querySelectorAll(":scope > .ce-item")].map((li) => li.dataset.id);
+					if (!ids.length) continue;
+					const parentLi = ul.closest(".ce-item");
+					for (let i = 0; i < ids.length; i += 100) {
+						const r = await fetch("/_emdash/api/taxonomies/category/reorder", {
+							method: "POST", headers: H, credentials: "same-origin",
+							body: JSON.stringify({ parentId: parentLi ? parentLi.dataset.id : null, ids: ids.slice(i, i + 100) }),
+						});
+						if (!r.ok) throw new Error("並び順の保存に失敗（" + r.status + "）");
+					}
+				}
+				await load();
+				setStatus("保存しました ✓", "is-ok");
+			} catch (err) {
+				setStatus(String(err.message || err), "is-error");
+				saveBtn.disabled = false; resetBtn.disabled = false;
+			}
+		}
+
+		saveBtn.onclick = save;
+		resetBtn.onclick = load;
+		window.addEventListener("beforeunload", (e) => { if (!saveBtn.disabled) { e.preventDefault(); e.returnValue = ""; } });
+		load();
+	})();
+</script>
+
+<style is:global>
+	.ce-help { font-size: 0.9rem; color: #555; line-height: 1.8; }
+	.ce-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0; position: sticky; top: 0; background: #fff; padding: 8px 0; z-index: 5; }
+	.ce-btn { border: 1px solid #ccc; background: #fff; border-radius: 4px; padding: 6px 14px; font: inherit; font-size: 0.85rem; cursor: pointer; }
+	.ce-btn:disabled { opacity: 0.5; cursor: default; }
+	.ce-btn--primary { background: #3d6cb3; border-color: #3d6cb3; color: #fff; font-weight: 700; }
+	.ce-status { font-size: 0.85rem; color: #777; }
+	.ce-status.is-dirty { color: #b26a00; }
+	.ce-status.is-ok { color: #1a7f37; }
+	.ce-status.is-error { color: #c62828; }
+	.ce-list { list-style: none; margin: 0; padding: 0 0 0 28px; min-height: 6px; }
+	.ce-list--root { padding-left: 0; }
+	.ce-row { display: flex; align-items: center; gap: 6px; padding: 7px 10px; margin: 3px 0; background: #f7f7f7; border: 1px solid #e3e3e3; border-radius: 4px; cursor: grab; user-select: none; }
+	.ce-row:hover { background: #eef3fb; border-color: #c5d5ee; }
+	.ce-handle { color: #aaa; font-size: 1rem; }
+	.ce-label { font-size: 0.9rem; }
+	.ce-count { color: #999; font-size: 0.75rem; margin-left: auto; }
+	.ce-toggle { width: 18px; height: 18px; border: 0; background: none; padding: 0; cursor: pointer; color: #777; visibility: hidden; }
+	.ce-item.has-children > .ce-row .ce-toggle { visibility: visible; }
+	.ce-toggle::before { content: "▾"; }
+	.ce-item.is-collapsed > .ce-row .ce-toggle::before { content: "▸"; }
+	.ce-item.is-collapsed > .ce-list { display: none; }
+	.sortable-ghost > .ce-row { background: #dbe7fb; border-style: dashed; }
+	.sortable-chosen > .ce-row { cursor: grabbing; }
+	.ce-foot { margin-top: 20px; font-size: 0.85rem; }
+</style>
