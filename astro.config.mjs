@@ -20,6 +20,8 @@ export default defineConfig({
 	// ログイン情報は D1 に保存（KV だと反映待ちでログイン画面に戻され続けることがあるため）
 	session: {
 		driver: { entrypoint: fileURLToPath(new URL("./src/session-d1.ts", import.meta.url)), config: {} },
+		// ログインを2日間おぼえておく（ブラウザを閉じても、2日以内なら管理画面にそのまま入れる）
+		cookie: { maxAge: 2 * 24 * 60 * 60 },
 	},
 	adapter: cloudflare(),
 	cache: {
