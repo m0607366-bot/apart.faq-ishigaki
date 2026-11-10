@@ -7,7 +7,7 @@ export const SITE = {
 	timeZone: "Asia/Tokyo", // WordPress側のタイムゾーン設定に合わせる
 	firstMonth: "2019-03", // アーカイブの開始月
 	adsenseClient: "", // AdSense（入れると有効）
-	googleTag: "", // Googleアナリティクス（入れると有効）
+	googleTag: "G-CV64GR35ZH", // Googleアナリティクス（2026-11-11 入れ直し）
 	cfBeaconToken: "", // Cloudflare Web Analytics（アクセス解析）のトークン
 	stickyPostId: "", // トップページの先頭に固定表示する記事（取り込み後に「はじめに」の記事IDを入れる）
 	introPage: "page-11", // トップの先頭に出す固定ページ（WordPress の「はじめに」）
